@@ -1,0 +1,157 @@
+// Prisma schema for Nobryn — business transaction execution and verification.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TransactionState {
+  CREATED
+  ACCEPTED
+  FULFILLING
+  DELIVERED
+  COMPLETED
+}
+
+enum ExceptionStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+enum ExceptionType {
+  SUPPLIER_TIMEOUT
+  DELIVERY_DELAY
+  QUANTITY_MISMATCH
+}
+
+model User {
+  id           String   @id @default(cuid())
+  firstName    String
+  lastName     String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspaces Workspace[]
+
+  @@index([email])
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner         User           @relation(fields: [ownerId], references: [id])
+  counterparties Counterparty[]
+  transactions  Transaction[]
+
+  @@index([ownerId])
+}
+
+model Counterparty {
+  id          String   @id @default(cuid())
+  workspaceId String
+  companyName String
+  contactName String
+  email       String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([workspaceId])
+}
+
+model Transaction {
+  id                    String           @id @default(cuid())
+  workspaceId           String
+  purchaseOrderNumber   String
+  counterpartyId        String
+  description           String
+  amount                Decimal          @db.Decimal(14, 2)
+  currency              String           @default("USD")
+  expectedDeliveryDate  DateTime
+  state                 TransactionState @default(CREATED)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  counterparty Counterparty     @relation(fields: [counterpartyId], references: [id])
+  items       TransactionItem[]
+  evidence    Evidence[]
+  exceptions  Exception[]
+  activity    ActivityEvent[]
+
+  @@unique([workspaceId, purchaseOrderNumber])
+  @@index([workspaceId, state])
+  @@index([workspaceId, updatedAt])
+  @@index([counterpartyId])
+}
+
+model TransactionItem {
+  id            String  @id @default(cuid())
+  transactionId String
+  name          String
+  quantity      Decimal @db.Decimal(14, 2)
+  unitPrice     Decimal @db.Decimal(14, 2)
+  total         Decimal @db.Decimal(14, 2)
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+}
+
+model Evidence {
+  id            String   @id @default(cuid())
+  transactionId String
+  type          String
+  source        String
+  reference     String
+  receivedAt    DateTime @default(now())
+  verified      Boolean  @default(false)
+  notes         String?
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+}
+
+model Exception {
+  id             String          @id @default(cuid())
+  transactionId  String
+  type           ExceptionType
+  status         ExceptionStatus @default(OPEN)
+  description    String
+  detectedAt     DateTime        @default(now())
+  nextAction     String?
+  resolutionNote String?
+  resolvedAt     DateTime?
+  resolvedBy     String?
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+  @@index([status])
+}
+
+model ActivityEvent {
+  id            String   @id @default(cuid())
+  transactionId String
+  type          String
+  description   String
+  createdAt     DateTime @default(now())
+  metadata      Json?
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId, createdAt])
+}
