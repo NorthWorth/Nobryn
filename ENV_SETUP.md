@@ -31,8 +31,8 @@ Variables only required for optional behavior.
 
 | Variable     | What it is                                                        | Where you obtain it                                      |
 | ------------ | ----------------------------------------------------------------- | -------------------------------------------------------- |
-| `CORS_ORIGIN`| Comma-separated allowed browser origins. Empty = allow all (development only). Set to your domain in production. | Your deployed frontend origin(s)                          |
-| `PORT`       | Port the production server binds to (API + static frontend). Usually injected by the hosting platform. | Platform-provided; local default `4000`                   |
+| `CORS_ORIGIN`| Comma-separated allowed browser origins. Empty = allow all (development only). For the split Vercel + Render deployment, set this on Render to the deployed Vercel frontend origin (e.g. `https://your-app.vercel.app`). | Your deployed Vercel frontend origin(s)                          |
+| `PORT`       | Port the production server binds to (API only). Usually injected by the hosting platform. | Platform-provided; local default `4000`                   |
 
 ### Development-only
 
@@ -82,6 +82,10 @@ JWT_SECRET=
 PORT=4000
 ```
 
+The production backend is deployed as an API-only service (Render, root directory
+`server`). It serves `/api/*` and does not serve the frontend. The frontend is
+deployed separately (Vercel, root directory `client`).
+
 ## CORS (optional)
 
 Comma-separated list of allowed origins. Leave empty to allow all (development only).
@@ -92,6 +96,28 @@ CORS_ORIGIN=https://your-production-domain.com
 
 ## Frontend
 
-The frontend reads **no** environment variables. It calls the API through
-relative `/api/*` URLs (proxied to the backend by the Vite dev server), so no
-server secret is ever exposed to the browser.
+The frontend reads exactly one environment variable:
+
+- `VITE_API_URL` — production backend origin for API requests (e.g.
+  `https://nobryn.onrender.com`). Set this in the frontend hosting environment
+  (Vercel) so the built frontend calls the deployed backend directly. The frontend
+  never reads any backend secret.
+
+For local development, leave `VITE_API_URL` unset. The client then sends relative
+`/api/*` paths and the Vite dev server's `/api` proxy forwards them to the local
+backend on `API_PORT` (default `4000`). The endpoint paths themselves
+(`/api/auth/login`, `/api/transactions`, etc.) are unchanged in both modes — only
+the base URL is configured.
+
+Never put `DATABASE_URL`, `DATABASE_CA_CERT`, or `JWT_SECRET` into frontend
+environment variables. Those belong only on the backend host.
+
+### Frontend environment variable
+
+```
+VITE_API_URL=https://nobryn.onrender.com
+```
+
+- Required in production (Vercel build).
+- Optional locally — unset means "use the Vite dev proxy".
+- The only frontend environment variable Nobryn uses.

@@ -155,10 +155,12 @@ Each package also builds standalone: `cd client && bun run build`, `cd server &&
 ## Start command
 
 ```bash
-bun run start          # serves the API and the built frontend on $PORT (default 4000)
+bun run start          # serves the API-only backend on $PORT (default 4000)
 ```
 
-In production the Express server serves both the API (`/api/*`) and the static frontend from `client/dist/`, so a single process can be deployed.
+In production the Render backend is API-only: it serves `/api/*` and nothing else.
+The built frontend is deployed separately on Vercel, so the backend must not serve
+`client/dist/`.
 
 ## API structure
 
@@ -213,23 +215,27 @@ The repository is split into two independent packages plus a root orchestrator:
 `bun.lock`. A clean install inside `client/` installs only frontend dependencies; a
 clean install inside `server/` installs only backend dependencies.
 
-| | Frontend (Vercel) | Backend |
+| | Frontend (Vercel) | Backend (Render) |
 | --- | --- | --- |
-| Root Directory | `client` | `server/` on your backend host |
+| Root Directory | `client` | `server` |
 | Install | `bun install` (uses `client/bun.lock`) | `bun install` (uses `server/bun.lock`) |
 | Build | `bun run build` → `vite build` only | `bun run build` → `prisma generate` + `tsc` |
 | Output | `client/dist` (static) | `server/dist` |
 | Start | — (static hosting) | `bun run start` |
-| Env vars | **none** | `DATABASE_URL`, `DATABASE_CA_CERT`, `JWT_SECRET`, `CORS_ORIGIN`, `PORT` |
+| Env vars | `VITE_API_URL` (frontend only) | `DATABASE_URL`, `DATABASE_CA_CERT`, `JWT_SECRET`, `CORS_ORIGIN`, `PORT` |
 
 - **Vercel settings:** Root Directory `client`, Build Command `bun run build`,
   Output Directory `dist`, Framework Vite (`client/vercel.json` pins install/build/output).
   Vercel only ever installs and builds `client/` — it never runs Prisma, migrations,
   seed, tsc for the server, or Express.
-- **Frontend environment:** the frontend reads no environment variables and calls
-  relative `/api/*` URLs, so no backend secret is ever required by or exposed to the
-  frontend build. Never put `DATABASE_URL`, `DATABASE_CA_CERT`, or `JWT_SECRET` in
-  client environment variables.
+- **Frontend environment:** the frontend reads exactly one environment variable,
+  `VITE_API_URL`, which is the deployed backend origin (e.g.
+  `https://nobryn.onrender.com`). It is set in `client/vercel.json` for the Vercel
+  build and must never contain any backend secret. Never put `DATABASE_URL`,
+  `DATABASE_CA_CERT`, or `JWT_SECRET` in client environment variables.
+- **Production API URLs:** with `VITE_API_URL=https://nobryn.onrender.com` set, the
+frontend calls the backend directly on `https://nobryn.onrender.com/api/...` instead
+of relying on a same-origin proxy.
 - **Dependency split:** `client/package.json` declares `react`, `react-dom`,
   `react-router-dom`, `vite`, `@vitejs/plugin-react`, TypeScript, Tailwind/PostCSS —
   and nothing from the backend. `server/package.json` declares `express`, `cors`,
@@ -239,21 +245,20 @@ clean install inside `server/` installs only backend dependencies.
   `bun.lock` covers only the orchestrator (`concurrently`). Neither side needs the
   other's `node_modules`.
 
-**How `/api/*` reaches a separately deployed backend:** the client keeps using
-relative `/api/*` URLs (unchanged). Two supported deployment shapes:
+**How `/api/*` reaches the separately deployed backend:** the frontend uses a single
+centralized API base URL (`VITE_API_URL`) in `client/src/lib/api.ts`. When
+`VITE_API_URL` is set (production), every API call is prefixed with that base, so
+requests go to `https://nobryn.onrender.com/api/...`. When `VITE_API_URL` is unset
+(local development), the client sends relative `/api/...` paths and the Vite dev
+server's `/api` proxy forwards them to the local Express backend on `API_PORT`
+(default `4000`). The endpoint paths themselves (`/api/auth/login`, `/api/transactions`,
+etc.) are never changed — only the base is configured.
 
-1. **Single process (default):** build the client, then `server` serves `client/dist`
-   and the API from the same origin — relative `/api/*` works with no proxy config.
-2. **Split origins (Vercel + separate API):** add a rewrite in `client/vercel.json`
-   once the backend origin exists:
-
-   ```json
-   "rewrites": [{ "source": "/api/:path*", "destination": "https://YOUR_BACKEND_ORIGIN/api/:path*" }]
-   ```
-
-   No backend URL is hardcoded in the repository because none exists yet; the only
-   localhost reference is the development-only Vite proxy (`/api` → `localhost:4000`).
-   Never use localhost in production.
+**CORS (Render production):** the backend already reads `CORS_ORIGIN` to allow listed
+origins. For the split Vercel + Render deployment, set `CORS_ORIGIN` on Render to the
+deployed Vercel frontend origin (e.g. `https://your-app.vercel.app`). Leave it empty
+only for local development. Do not open CORS to every origin in production if
+`CORS_ORIGIN` is already configured.
 
 ## Demo script (5-minute walkthrough)
 

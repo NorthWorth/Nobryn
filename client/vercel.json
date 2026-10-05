@@ -2,6 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "bun install",
-  "buildCommand": "bun run build",
-  "outputDirectory": "dist"
+  "buildCommand": "VITE_API_URL=${VITE_API_URL:-} bun run build",
+  "outputDirectory": "dist",
+  "env": {
+    "VITE_API_URL": "https://nobryn.onrender.com"
+  }
 }

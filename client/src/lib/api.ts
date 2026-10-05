@@ -23,6 +23,29 @@ export function setToken(token: string | null) {
   }
 }
 
+/**
+ * One centralized API base URL for the whole application.
+ *
+ * Production (Vercel frontend + Render backend): set `VITE_API_URL` to the
+ * deployed backend origin, e.g. `https://nobryn.onrender.com`. Every API call
+ * is then prefixed with that base, so requests go to
+ * `https://nobryn.onrender.com/api/...`.
+ *
+ * Local development: leave `VITE_API_URL` unset and keep using the Vite dev
+ * server's `/api` proxy to the local Express backend on `API_PORT` (default
+ * `4000`). In that mode the client sends relative `/api/...` paths and the
+ * proxy forwards them, so no backend secret is ever exposed to the browser.
+ */
+function apiBase(): string {
+  // `import.meta.env` is statically replaced at build time by Vite.
+  const base = import.meta.env.VITE_API_URL;
+  if (base && base.trim()) {
+    // Strip a trailing slash so we can safely append `/api/...`.
+    return base.trim().replace(/\/+$/, "");
+  }
+  return "";
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -32,9 +55,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
+  const url = apiBase() + path;
   let response: Response;
   try {
-    response = await fetch(path, { ...options, headers });
+    response = await fetch(url, { ...options, headers });
   } catch {
     throw new ApiClientError(
       0,
