@@ -3,21 +3,23 @@ import type { TransactionState } from "../lib/types";
 
 /**
  * State progression: completed states show a check, the current state a filled
- * blue dot, future states a muted hollow dot. Vertical on small screens.
+ * blue dot, future states a muted hollow dot. Vertical below the desktop
+ * breakpoint (so it never forces horizontal overflow in narrow columns),
+ * horizontal with a wrap fallback on desktop.
  */
 export function TransactionStateTimeline({ state }: { state: TransactionState }) {
   const currentIndex = STATE_ORDER.indexOf(state);
   return (
     <ol
-      className="flex flex-col gap-0 md:flex-row md:items-center md:gap-0"
+      className="flex flex-col gap-0 xl:flex-row xl:flex-wrap xl:items-center xl:gap-0"
       aria-label="Transaction state progression"
     >
       {STATE_ORDER.map((s, i) => {
         const done = i < currentIndex;
         const current = i === currentIndex;
         return (
-          <li key={s} className="flex md:items-center md:flex-1 last:md:flex-none">
-            <div className="flex items-center gap-8px md:flex-1 md:justify-start" style={{ gap: 8 }}>
+          <li key={s} className="flex xl:items-center xl:flex-1 last:xl:flex-none">
+            <div className="flex items-center gap-8px xl:flex-1 xl:justify-start" style={{ gap: 8 }}>
               <span
                 aria-hidden
                 style={{
@@ -55,7 +57,7 @@ export function TransactionStateTimeline({ state }: { state: TransactionState })
             {i < STATE_ORDER.length - 1 ? (
               <span
                 aria-hidden
-                className="hidden md:block"
+                className="hidden xl:block"
                 style={{
                   flex: 1,
                   height: 1,

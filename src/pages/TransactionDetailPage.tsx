@@ -198,7 +198,7 @@ export default function TransactionDetailPage() {
             ) : null}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }} ref={simRef}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }} ref={simRef}>
           {nextAction ? (
             <Button onClick={() => void advance()} loading={advancing} loadingText={`${nextAction}...`}>
               {nextAction}
@@ -485,9 +485,9 @@ export default function TransactionDetailPage() {
 
 function MetaSmall({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div style={{ minWidth: 0 }}>
       <div className="text-12 text-muted">{label}</div>
-      <div style={{ fontSize: 13 }}>{value}</div>
+      <div style={{ fontSize: 13, overflowWrap: "anywhere" }}>{value}</div>
     </div>
   );
 }
@@ -498,7 +498,7 @@ function ExceptionMeta({ label, value }: { label: string; value: string }) {
       <span className="text-12 text-muted" style={{ flex: "none" }}>
         {label}
       </span>
-      <span style={{ fontSize: 13, textAlign: "right" }}>{value}</span>
+      <span style={{ fontSize: 13, textAlign: "right", minWidth: 0, overflowWrap: "anywhere" }}>{value}</span>
     </div>
   );
 }

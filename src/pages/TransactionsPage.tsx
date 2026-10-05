@@ -77,8 +77,8 @@ export default function TransactionsPage() {
         </Link>
       </div>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-        <div style={{ flex: "1 1 260px", maxWidth: 360 }}>
+      <div className="toolbar">
+        <div className="toolbar-search">
           <Input
             type="search"
             aria-label="Search transactions"
@@ -87,7 +87,7 @@ export default function TransactionsPage() {
             onChange={(e) => onSearchChange(e.target.value)}
           />
         </div>
-        <div style={{ width: 180 }}>
+        <div className="toolbar-filter">
           <Select
             aria-label="Filter by state"
             value={stateFilter}

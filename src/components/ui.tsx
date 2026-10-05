@@ -5,7 +5,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { ExceptionStatus, TransactionState } from "../lib/types";
 import { EXCEPTION_LABELS, EXCEPTION_STATUS_LABELS, STATE_LABELS } from "../lib/types";
 
@@ -246,6 +246,8 @@ export function Modal({
   children: ReactNode;
   width?: number;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -254,6 +256,16 @@ export function Modal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Move focus into the dialog on open and restore it to the trigger on close
+  // so keyboard users are not dropped back at the top of the page.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => {
+      previouslyFocused?.focus?.();
+    };
+  }, []);
+
   return (
     <div
       className="modal-overlay"
@@ -261,7 +273,15 @@ export function Modal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="modal" style={{ maxWidth: width }} role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="modal"
+        style={{ maxWidth: width }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
         <div className="modal-header">
           <h2>{title}</h2>
           {description ? <p className="modal-desc">{description}</p> : null}

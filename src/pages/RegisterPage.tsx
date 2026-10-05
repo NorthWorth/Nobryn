@@ -66,7 +66,7 @@ export default function RegisterPage() {
             {formError}
           </div>
         ) : null}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="grid-2">
           <Field label="First name" htmlFor="firstName" error={fieldErrors.firstName}>
             <Input
               id="firstName"

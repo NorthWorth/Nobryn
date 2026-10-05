@@ -17,6 +17,9 @@ export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [wsOpen, setWsOpen] = useState(false);
   const wsRef = useRef<HTMLDivElement>(null);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const drawerWasOpen = useRef(false);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -27,6 +30,30 @@ export function AppShell() {
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
+
+  // Mobile drawer: Escape closes, focus moves in on open and returns to the
+  // trigger on close, and the background does not scroll behind the overlay.
+  useEffect(() => {
+    if (drawerOpen) {
+      drawerWasOpen.current = true;
+      document.body.style.overflow = "hidden";
+      closeBtnRef.current?.focus();
+      function onKey(e: KeyboardEvent) {
+        if (e.key === "Escape") setDrawerOpen(false);
+      }
+      document.addEventListener("keydown", onKey);
+      return () => {
+        document.removeEventListener("keydown", onKey);
+        document.body.style.overflow = "";
+      };
+    }
+    document.body.style.overflow = "";
+    if (drawerWasOpen.current) {
+      drawerWasOpen.current = false;
+      menuBtnRef.current?.focus();
+    }
+    return undefined;
+  }, [drawerOpen]);
 
   function handleLogout() {
     logout();
@@ -92,7 +119,7 @@ export function AppShell() {
           <div style={{ fontSize: 13, fontWeight: 500 }}>
             {user ? `${user.firstName} ${user.lastName}` : ""}
           </div>
-          <div style={{ fontSize: 12, color: "#94A3B8" }}>{user?.email}</div>
+          <div className="user-email" style={{ fontSize: 12, color: "#94A3B8" }}>{user?.email}</div>
           <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} onClick={handleLogout}>
             Log out
           </button>
@@ -106,6 +133,7 @@ export function AppShell() {
         </Link>
         <button
           type="button"
+          ref={menuBtnRef}
           className="menu-btn"
           aria-label="Open navigation menu"
           aria-expanded={drawerOpen}
@@ -125,7 +153,7 @@ export function AppShell() {
               <div>
                 <div className="brand-word" style={{ fontSize: 16 }}>Nobryn</div>
               </div>
-              <button type="button" className="menu-btn" aria-label="Close navigation menu" onClick={() => setDrawerOpen(false)}>
+              <button type="button" ref={closeBtnRef} className="menu-btn" aria-label="Close navigation menu" onClick={() => setDrawerOpen(false)}>
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
                   <path d="M4.5 4.5l9 9m0-9l-9 9" stroke="#0B1220" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>

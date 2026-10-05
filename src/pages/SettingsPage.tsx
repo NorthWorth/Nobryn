@@ -109,7 +109,7 @@ export default function SettingsPage() {
           Account
         </h2>
         <form onSubmit={saveAccount} noValidate style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 480 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div className="grid-2">
             <Field label="First name" htmlFor="acc-first" error={errors.firstName}>
               <Input
                 id="acc-first"

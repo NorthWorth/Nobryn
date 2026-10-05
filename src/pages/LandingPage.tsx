@@ -28,11 +28,11 @@ export default function LandingPage() {
   return (
     <div style={{ background: "#F8FAFC", minHeight: "100vh" }}>
       <header className="landing-nav">
-        <div className="landing-container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: 0 }}>
+        <div className="landing-container landing-nav-inner" style={{ padding: 0 }}>
           <div>
             <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em" }}>Nobryn</span>
           </div>
-          <nav style={{ display: "flex", alignItems: "center", gap: 24 }} aria-label="Landing navigation">
+          <nav className="landing-links" aria-label="Landing navigation">
             <a href="#product" className="text-muted" style={{ fontSize: 14 }}>
               Product
             </a>
@@ -73,7 +73,7 @@ export default function LandingPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
               gap: 16,
               marginTop: 24,
             }}
@@ -103,7 +103,7 @@ export default function LandingPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))",
               gap: 16,
               marginTop: 24,
             }}

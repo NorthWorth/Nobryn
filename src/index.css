@@ -106,6 +106,17 @@ button {
   background: var(--canvas);
 }
 
+.workspace-btn > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-email {
+  overflow-wrap: anywhere;
+}
+
 .workspace-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -609,6 +620,7 @@ table.nbt td .secondary {
   font-size: 12px;
   color: var(--muted);
   margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 
 .toast-error {
@@ -668,6 +680,7 @@ table.nbt td .secondary {
 .modal-footer {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -694,6 +707,7 @@ table.nbt td .secondary {
   color: var(--muted);
   margin: 0 0 8px 0;
   max-width: 420px;
+  overflow-wrap: anywhere;
 }
 
 /* ---------------------------------------------------------------------------
@@ -725,6 +739,7 @@ table.nbt td .secondary {
   font-size: 14px;
   line-height: 22px;
   color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
 /* ---------------------------------------------------------------------------
@@ -841,5 +856,96 @@ table.nbt td .secondary {
   }
   .card-pad {
     padding: 16px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Responsive pass: landing nav, toolbars, form grids, page header
+--------------------------------------------------------------------------- */
+
+.landing-nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  width: 100%;
+}
+
+.landing-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.toolbar-search {
+  flex: 1 1 260px;
+  min-width: 0;
+  max-width: 360px;
+}
+
+.toolbar-filter {
+  flex: 0 1 180px;
+  min-width: 160px;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.grid-2 > *,
+.grid-currency > *,
+.grid-items > * {
+  min-width: 0;
+}
+
+.grid-currency {
+  display: grid;
+  grid-template-columns: 120px 1fr 1fr;
+  gap: 16px;
+}
+
+.grid-items {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+@media (max-width: 767px) {
+  .landing-links {
+    gap: 12px;
+  }
+  .page-header h1 {
+    font-size: 26px;
+    line-height: 34px;
+  }
+  .toolbar-search,
+  .toolbar-filter {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .grid-2,
+  .grid-currency,
+  .grid-items {
+    grid-template-columns: 1fr;
   }
 }

@@ -243,7 +243,7 @@ export default function CreateTransactionPage() {
             />
           </Field>
 
-          <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 1fr", gap: 16 }}>
+          <div className="grid-currency">
             <Field label="Currency" htmlFor="currency">
               <Select id="currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
                 <option value="USD">USD</option>
@@ -290,7 +290,7 @@ export default function CreateTransactionPage() {
           ) : null}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {items.map((item, idx) => (
-              <div key={idx} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
+              <div key={idx} className="grid-items">
                 <Field label="Item name" htmlFor={`item-${idx}-name`} error={fieldErrors[`item-${idx}-name`]}>
                   <Input
                     id={`item-${idx}-name`}
@@ -342,7 +342,7 @@ export default function CreateTransactionPage() {
           </div>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24 }}>
+        <div className="form-actions">
           <Link to="/app/transactions" className="btn btn-secondary">
             Cancel
           </Link>

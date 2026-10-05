@@ -50,8 +50,8 @@ export default function ExceptionsPage() {
         </p>
       </div>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-        <div style={{ width: 180 }}>
+      <div className="toolbar">
+        <div className="toolbar-filter">
           <Select
             aria-label="Filter exceptions by status"
             value={statusFilter}
