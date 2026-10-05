@@ -126,8 +126,8 @@ The seeder is idempotent: it skips if the demo workspace already exists.
 ## Build command
 
 ```bash
-bun run build          # builds the frontend into dist/
-bun run build:server   # compiles the backend into dist-server/
+bun run build          # frontend only: vite build -> dist/
+bun run build:server   # backend: prisma generate + tsc -> dist-server/
 ```
 
 ## Start command
@@ -183,6 +183,26 @@ CREATED → ACCEPTED → FULFILLING → DELIVERED → COMPLETED
 6. Start: `bun run start` (single process serves API + frontend).
 
 Freebuff Cloud preview/production: the preview runs `bun run dev:all` (Vite + API with proxy). For production deploys the build command is `bun run build` and the start command is `bun run start`.
+
+### Frontend deployment (Vercel)
+
+The repository is a **single package** — one root `package.json` and one lockfile
+(`bun.lock`) — with frontend and backend responsibilities separated by script and by
+actual import usage (no workspace split is required):
+
+| | Frontend (Vercel) | Backend |
+| --- | --- | --- |
+| Install | `bun install` (frozen lockfile in CI) | `bun install` |
+| Build | `bun run build` → `vite build` only | `bun run build:server` → `prisma generate` + `tsc` |
+| Output | `dist/` (static) | `dist-server/` |
+| Start | — (static hosting) | `bun run start` |
+| Env vars | **none** | `DATABASE_URL`, `DATABASE_CA_CERT`, `JWT_SECRET`, `CORS_ORIGIN`, `PORT` |
+
+- **Root Directory:** repository root (the frontend lives at the root; `vercel.json` pins install/build/output).
+- **Build isolation:** the Vercel build executes `vite build` only — it never starts Express, never runs Prisma migrations or seed, and never touches the database.
+- **Frontend environment:** the frontend reads no environment variables and calls relative `/api/*` URLs, so no backend secret is ever required by or exposed to the frontend build.
+- **Dependency split:** frontend build/runtime needs `react`, `react-dom`, `react-router-dom`, `vite`, `@vitejs/plugin-react`, TypeScript, Tailwind/PostCSS. Backend runtime needs `express`, `cors`, `prisma`, `@prisma/*`, `pg`, `bcryptjs`, `jsonwebtoken`, `zod`, `dotenv`. `src/` never imports any backend-only package; backend-only packages are never needed to build the frontend.
+- `@vitejs/plugin-react` is imported by `vite.config.ts` and is declared in `devDependencies` — it must stay declared there so a clean install can resolve it.
 
 ## Demo script (5-minute walkthrough)
 
