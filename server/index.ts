@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
-import "dotenv/config";
+import "./env.js";
 import { errorHandler } from "./errors.js";
 import { authRouter } from "./routes/auth.js";
 import { apiRouter } from "./routes/api.js";
@@ -27,8 +27,8 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/auth", authRouter);
 app.use("/api", apiRouter);
 
-// Serve the built frontend in production.
-const distDir = path.resolve(__dirname, "..", "dist");
+// Serve the built frontend in production (built by the client package).
+const distDir = path.resolve(__dirname, "..", "client", "dist");
 app.use(express.static(distDir));
 app.get(/^\/(?!api\/).*/, (_req, res) => {
   res.sendFile(path.join(distDir, "index.html"));

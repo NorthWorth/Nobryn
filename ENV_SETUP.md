@@ -41,7 +41,7 @@ Needed only for local development/testing. Do not set these in production.
 | Variable     | What it is                                                                     | Where it comes from                     |
 | ------------ | ------------------------------------------------------------------------------ | --------------------------------------- |
 | `API_PORT`   | Backend port used when the API runs next to the Vite dev server (set by `bun run dev:all`; the Vite proxy targets it) | Set by the dev script; local default `4000` |
-| `TLS_BOGUS_CA` | Path to a bogus CA PEM used only by `scripts/verify-tls.mjs` to prove that TLS verification rejects untrusted certificates | Optional; defaults to `/tmp/fake-ca.pem` |
+| `TLS_BOGUS_CA` | Path to a bogus CA PEM used only by `server/scripts/verify-tls.mjs` to prove that TLS verification rejects untrusted certificates | Optional; defaults to `/tmp/fake-ca.pem` |
 
 ## Database (required)
 

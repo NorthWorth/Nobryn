@@ -7,7 +7,7 @@
  *   2. no CA + rejectUnauthorized:true                  -> must be REJECTED
  *   3. bogus CA + rejectUnauthorized:true               -> must be REJECTED
  *
- * Usage: node scripts/verify-tls.mjs   (exits 0 only if all three hold)
+ * Usage: node server/scripts/verify-tls.mjs   (from the repository root; exits 0 only if all three hold)
  * Never prints certificate material or credentials.
  */
 import { Pool } from "pg";

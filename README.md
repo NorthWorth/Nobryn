@@ -31,19 +31,32 @@ Transactions are supported by **evidence**, guarded by a strict **state machine*
 ## Architecture
 
 ```
-├── src/                 # React 19 + TypeScript + Vite frontend
-│   ├── components/      # AppShell, shared UI primitives, state timeline
-│   ├── lib/             # API client, auth context, toast system, types
-│   └── pages/           # Landing, auth, and application pages
-├── server/              # Express 5 + TypeScript backend
+├── client/              # Frontend package — independently deployed (Vercel)
+│   ├── src/             # React 19 + TypeScript + Vite application
+│   │   ├── components/  # AppShell, shared UI primitives, state timeline
+│   │   ├── lib/         # API client, auth context, toast system, types
+│   │   └── pages/       # Landing, auth, and application pages
+│   ├── package.json     # Frontend-only dependencies (react, vite, @vitejs/plugin-react, tailwind…)
+│   ├── bun.lock         # Client lockfile — installs only the frontend graph
+│   ├── vite.config.ts   # Vite config (dev proxy to the API on :4000)
+│   ├── tailwind.config.js / postcss.config.js / tsconfig.json
+│   └── vercel.json      # Vercel install/build/output (Root Directory: client)
+├── server/              # Backend package — independently deployed
 │   ├── routes/          # /api/auth, /api (workspace-scoped resources)
 │   ├── services/        # Transaction service (state machine, execution, evidence)
 │   ├── domain.ts        # State machine, step/evidence definitions, Zod schemas
 │   ├── auth.ts          # JWT middleware + workspace resolution
-│   └── seed.ts          # Demo data seeder
-├── prisma/
-│   └── schema.prisma    # PostgreSQL data model
-└── prisma.config.ts     # Prisma 7 config (datasource URL from env)
+│   ├── prisma.ts        # Shared Prisma client (TLS verification)
+│   ├── seed.ts          # Demo data seeder
+│   ├── scripts/         # verify-tls.mjs diagnostic
+│   ├── package.json     # Backend-only dependencies (express, prisma, pg, bcrypt…)
+│   ├── bun.lock         # Server lockfile — installs only the backend graph
+│   ├── tsconfig.json    # Backend TypeScript config (emits server/dist/)
+│   ├── prisma/
+│   │   └── schema.prisma  # PostgreSQL data model
+│   └── prisma.config.ts   # Prisma 7 config (datasource URL from env)
+├── package.json         # Root orchestrator: runs dev/build/typecheck across both packages
+└── bun.lock             # Orchestrator-only lockfile (concurrently)
 ```
 
 **Stack:** React 19, React Router 7, Vite, Tailwind CSS, Express 5, Prisma 7 (pg driver adapter), PostgreSQL, JWT auth, bcrypt password hashing, Zod validation.
@@ -53,11 +66,14 @@ Transactions are supported by **evidence**, guarded by a strict **state machine*
 Requirements: Node.js 20+, Bun (or npm), a PostgreSQL database.
 
 ```bash
-# 1. Install dependencies
+# 1. Install dependencies (root orchestrator + client + server)
 bun install
+bun install --cwd client
+bun install --cwd server
 
 # 2. Configure environment (see ENV_SETUP.md)
 cp env.example .env   # then fill in DATABASE_URL / DATABASE_CA_CERT / JWT_SECRET
+#    canonical location is the repository root; server/.env is an optional override
 
 # 3. Create the database schema
 bun run db:push
@@ -71,6 +87,10 @@ bun run dev:server
 # 6. Run the frontend (terminal 2)
 bun run dev
 ```
+
+All root scripts delegate into `client/` or `server/` (`bun run --cwd …`), so the
+commands above work from the repository root; you can equally `cd client` / `cd server`
+and run that package's scripts directly.
 
 The frontend proxies `/api/*` to the backend (`API_PORT`, default `4000`). The frontend itself reads no environment variables — API calls use relative `/api/*` URLs, so no server secret is ever exposed to the browser.
 
@@ -126,9 +146,11 @@ The seeder is idempotent: it skips if the demo workspace already exists.
 ## Build command
 
 ```bash
-bun run build          # frontend only: vite build -> dist/
-bun run build:server   # backend: prisma generate + tsc -> dist-server/
+bun run build          # frontend only: vite build -> client/dist/
+bun run build:server   # backend: prisma generate + tsc -> server/dist/
 ```
+
+Each package also builds standalone: `cd client && bun run build`, `cd server && bun run build`.
 
 ## Start command
 
@@ -136,7 +158,7 @@ bun run build:server   # backend: prisma generate + tsc -> dist-server/
 bun run start          # serves the API and the built frontend on $PORT (default 4000)
 ```
 
-In production the Express server serves both the API (`/api/*`) and the static frontend from `dist/`, so a single process can be deployed.
+In production the Express server serves both the API (`/api/*`) and the static frontend from `client/dist/`, so a single process can be deployed.
 
 ## API structure
 
@@ -182,27 +204,56 @@ CREATED → ACCEPTED → FULFILLING → DELIVERED → COMPLETED
 5. Build: `bun run build && bun run build:server`.
 6. Start: `bun run start` (single process serves API + frontend).
 
-Freebuff Cloud preview/production: the preview runs `bun run dev:all` (Vite + API with proxy). For production deploys the build command is `bun run build` and the start command is `bun run start`.
+Freebuff Cloud preview/production: the preview runs `bun run dev:all` (Vite + API with proxy, orchestrated from the root package). For production deploys the install command is `bun install && bun install --cwd client && bun install --cwd server`, the build command is `bun run build && bun run build:server` (produces `client/dist/` + `server/dist/`), and the start command is `bun run start`.
 
 ### Frontend deployment (Vercel)
 
-The repository is a **single package** — one root `package.json` and one lockfile
-(`bun.lock`) — with frontend and backend responsibilities separated by script and by
-actual import usage (no workspace split is required):
+The repository is split into two independent packages plus a root orchestrator:
+`client/` (frontend) and `server/` (backend), each with its own `package.json` and
+`bun.lock`. A clean install inside `client/` installs only frontend dependencies; a
+clean install inside `server/` installs only backend dependencies.
 
 | | Frontend (Vercel) | Backend |
 | --- | --- | --- |
-| Install | `bun install` (frozen lockfile in CI) | `bun install` |
-| Build | `bun run build` → `vite build` only | `bun run build:server` → `prisma generate` + `tsc` |
-| Output | `dist/` (static) | `dist-server/` |
+| Root Directory | `client` | `server/` on your backend host |
+| Install | `bun install` (uses `client/bun.lock`) | `bun install` (uses `server/bun.lock`) |
+| Build | `bun run build` → `vite build` only | `bun run build` → `prisma generate` + `tsc` |
+| Output | `client/dist` (static) | `server/dist` |
 | Start | — (static hosting) | `bun run start` |
 | Env vars | **none** | `DATABASE_URL`, `DATABASE_CA_CERT`, `JWT_SECRET`, `CORS_ORIGIN`, `PORT` |
 
-- **Root Directory:** repository root (the frontend lives at the root; `vercel.json` pins install/build/output).
-- **Build isolation:** the Vercel build executes `vite build` only — it never starts Express, never runs Prisma migrations or seed, and never touches the database.
-- **Frontend environment:** the frontend reads no environment variables and calls relative `/api/*` URLs, so no backend secret is ever required by or exposed to the frontend build.
-- **Dependency split:** frontend build/runtime needs `react`, `react-dom`, `react-router-dom`, `vite`, `@vitejs/plugin-react`, TypeScript, Tailwind/PostCSS. Backend runtime needs `express`, `cors`, `prisma`, `@prisma/*`, `pg`, `bcryptjs`, `jsonwebtoken`, `zod`, `dotenv`. `src/` never imports any backend-only package; backend-only packages are never needed to build the frontend.
-- `@vitejs/plugin-react` is imported by `vite.config.ts` and is declared in `devDependencies` — it must stay declared there so a clean install can resolve it.
+- **Vercel settings:** Root Directory `client`, Build Command `bun run build`,
+  Output Directory `dist`, Framework Vite (`client/vercel.json` pins install/build/output).
+  Vercel only ever installs and builds `client/` — it never runs Prisma, migrations,
+  seed, tsc for the server, or Express.
+- **Frontend environment:** the frontend reads no environment variables and calls
+  relative `/api/*` URLs, so no backend secret is ever required by or exposed to the
+  frontend build. Never put `DATABASE_URL`, `DATABASE_CA_CERT`, or `JWT_SECRET` in
+  client environment variables.
+- **Dependency split:** `client/package.json` declares `react`, `react-dom`,
+  `react-router-dom`, `vite`, `@vitejs/plugin-react`, TypeScript, Tailwind/PostCSS —
+  and nothing from the backend. `server/package.json` declares `express`, `cors`,
+  `prisma`, `@prisma/*`, `pg`, `bcryptjs`, `jsonwebtoken`, `zod`, `dotenv`, `tsx` —
+  and nothing from the frontend.
+- **Lockfiles:** `client/bun.lock` and `server/bun.lock` are independent; the root
+  `bun.lock` covers only the orchestrator (`concurrently`). Neither side needs the
+  other's `node_modules`.
+
+**How `/api/*` reaches a separately deployed backend:** the client keeps using
+relative `/api/*` URLs (unchanged). Two supported deployment shapes:
+
+1. **Single process (default):** build the client, then `server` serves `client/dist`
+   and the API from the same origin — relative `/api/*` works with no proxy config.
+2. **Split origins (Vercel + separate API):** add a rewrite in `client/vercel.json`
+   once the backend origin exists:
+
+   ```json
+   "rewrites": [{ "source": "/api/:path*", "destination": "https://YOUR_BACKEND_ORIGIN/api/:path*" }]
+   ```
+
+   No backend URL is hardcoded in the repository because none exists yet; the only
+   localhost reference is the development-only Vite proxy (`/api` → `localhost:4000`).
+   Never use localhost in production.
 
 ## Demo script (5-minute walkthrough)
 

@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./env.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { X509Certificate } from "node:crypto";
