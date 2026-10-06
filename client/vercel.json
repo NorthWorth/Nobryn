@@ -4,6 +4,12 @@
   "installCommand": "bun install",
   "buildCommand": "VITE_API_URL=${VITE_API_URL:-} bun run build",
   "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
   "env": {
     "VITE_API_URL": "https://nobryn.onrender.com"
   }
