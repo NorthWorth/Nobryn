@@ -103,7 +103,7 @@ export default function IntegrationsPage() {
                 }}
               >
                 {eventsFor(integration.source).map((event) => (
-                  <li key={event} className="text-13" style={{ color: "#475569" }}>
+                  <li key={event} className="text-12" style={{ color: "#475569" }}>
                     · {event}
                   </li>
                 ))}
