@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Button, Modal } from "../components/ui";
+import { EVENT_SOURCE_GROUPS } from "../lib/types";
 import { useToast } from "../lib/toast";
 
 interface Integration {
   key: string;
   name: string;
+  source: string;
   description: string;
   status: "Connected" | "Simulated connection";
 }
@@ -13,28 +15,44 @@ const INTEGRATIONS: Integration[] = [
   {
     key: "supplier-api",
     name: "Supplier API",
-    description: "Receive supplier confirmations and fulfillment events.",
+    source: "Supplier API",
+    description:
+      "Supplier confirmations, fulfillment started, delivery reports and timeout notices.",
     status: "Simulated connection",
   },
   {
     key: "warehouse",
     name: "Warehouse system",
-    description: "Capture delivery confirmations and received quantities.",
+    source: "Warehouse system",
+    description:
+      "Goods received, delivery reports and the quantities actually received.",
     status: "Simulated connection",
   },
   {
     key: "logistics",
     name: "Logistics provider",
-    description: "Track shipment events between dispatch and delivery.",
+    source: "Logistics provider",
+    description:
+      "Shipment creation, dispatch, transit updates, delays and delivery.",
     status: "Simulated connection",
   },
   {
     key: "erp",
     name: "ERP",
-    description: "Synchronize purchase orders with your ERP records.",
+    source: "ERP",
+    description:
+      "Purchase order creation, synchronization and purchase order updates.",
     status: "Simulated connection",
   },
 ];
+
+function eventsFor(source: string): string[] {
+  return (
+    EVENT_SOURCE_GROUPS.find((group) => group.source === source)?.events.map(
+      (event) => event.label
+    ) ?? []
+  );
+}
 
 export default function IntegrationsPage() {
   const { showToast } = useToast();
@@ -45,7 +63,9 @@ export default function IntegrationsPage() {
       <div className="page-header">
         <h1>Integrations</h1>
         <p className="support">
-          Connect the systems that provide transaction events and evidence.
+          External systems report claims and events into Nobryn. Nobryn verifies what requires
+          confirmation, reconciles it against the transaction, and only then updates state —
+          opening an exception when reality does not match expectations.
         </p>
       </div>
 
@@ -69,6 +89,27 @@ export default function IntegrationsPage() {
               {integration.description}
             </p>
             <div>
+              <div className="text-12 text-muted" style={{ fontWeight: 500 }}>
+                Events
+              </div>
+              <ul
+                style={{
+                  listStyle: "none",
+                  margin: "4px 0 0 0",
+                  padding: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
+                }}
+              >
+                {eventsFor(integration.source).map((event) => (
+                  <li key={event} className="text-13" style={{ color: "#475569" }}>
+                    · {event}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
               <Button variant="secondary" onClick={() => setConfiguring(integration)}>
                 Configure
               </Button>
@@ -80,7 +121,7 @@ export default function IntegrationsPage() {
       {configuring ? (
         <Modal
           title={`Configure ${configuring.name}`}
-          description="This integration is provided by the Nobryn execution engine and requires no external configuration."
+          description="Simulated source: events enter the same ingestion pipeline a future real integration will use — claims are recorded, verified where required, reconciled, and only then reflected in transaction state."
           onClose={() => setConfiguring(null)}
         >
           <div className="meta-row">
@@ -89,7 +130,7 @@ export default function IntegrationsPage() {
           </div>
           <div className="meta-row">
             <span className="meta-label">Events</span>
-            <span className="meta-value">Confirmations, fulfillment, delivery</span>
+            <span className="meta-value">{eventsFor(configuring.source).join(", ")}</span>
           </div>
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={() => setConfiguring(null)}>
@@ -100,7 +141,7 @@ export default function IntegrationsPage() {
                 setConfiguring(null);
                 showToast({
                   title: "Integration settings saved",
-                  description: `${configuring.name} remains connected via the Nobryn execution engine.`,
+                  description: `${configuring.name} continues to publish simulated events through the Nobryn ingestion pipeline.`,
                 });
               }}
             >

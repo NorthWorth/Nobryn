@@ -4,25 +4,24 @@ import { prisma } from "../prisma.js";
 import { ApiError, asyncHandler, parseWith } from "../errors.js";
 import { requireAuth, requireWorkspace, type AuthedRequest } from "../auth.js";
 import {
-  advanceStateSchema,
   counterpartySchema,
   createTransactionSchema,
-  evidenceSchema,
+  ingestEventSchema,
   resolveExceptionSchema,
-  simulateExceptionSchema,
   TransactionState as TxState,
   updateAccountSchema,
   updateWorkspaceSchema,
+  verifyDeliverySchema,
 } from "../domain.js";
 import {
-  advanceTransaction,
-  createSimulatedException,
   createTransaction,
+  getTransactionForDisplay,
   getTransactionScoped,
+  ingestExternalEvent,
   listExceptions,
-  recordManualEvidence,
   resolveException,
   serializeTransaction,
+  verifyDelivery,
 } from "../services/transactions.js";
 
 export const apiRouter = Router();
@@ -218,51 +217,43 @@ workspaceRouter.get(
   "/transactions/:id",
   asyncHandler(async (req, res) => {
     const { workspaceId } = ctx(req);
-    const tx = await getTransactionScoped(workspaceId, param(req, "id"));
+    const tx = await getTransactionForDisplay(workspaceId, param(req, "id"));
     res.json({ transaction: serializeTransaction(tx) });
   })
 );
 
-workspaceRouter.patch(
-  "/transactions/:id/state",
-  asyncHandler(async (req, res) => {
-    const { workspaceId } = ctx(req);
-    const input = parseWith(advanceStateSchema, req.body);
-    const tx = await advanceTransaction(workspaceId, param(req, "id"), input.state);
-    res.json({ transaction: serializeTransaction(tx) });
-  })
-);
-
+/**
+ * Event ingestion: simulated integrations publish events/claims here. This is
+ * the same pipeline a future real integration would use — normalize, validate,
+ * determine verification requirement, record the claim, and let the execution
+ * engine decide what happens to the transaction state.
+ */
 workspaceRouter.post(
-  "/transactions/:id/execute",
+  "/transactions/:id/events",
   asyncHandler(async (req, res) => {
     const { workspaceId } = ctx(req);
-    const { NEXT_STATE } = await import("../domain.js");
-    const current = await getTransactionScoped(workspaceId, param(req, "id"));
-    const next = NEXT_STATE[current.state];
-    if (!next) {
-      throw new ApiError(409, "This transaction has already completed.");
-    }
-    const tx = await advanceTransaction(workspaceId, param(req, "id"), next);
-    res.json({ transaction: serializeTransaction(tx) });
+    const input = parseWith(ingestEventSchema, req.body);
+    const result = await ingestExternalEvent(workspaceId, param(req, "id"), input);
+    res.status(result.duplicate ? 200 : 201).json({
+      transaction: serializeTransaction(result.transaction),
+      duplicate: result.duplicate,
+      awaitingVerification: result.awaitingVerification,
+    });
   })
 );
 
+/**
+ * Human confirmation of a delivery claim: the user records what was actually
+ * received. Nobryn reconciles observed vs expected and handles the resulting
+ * state change — the user never operates the state machine directly.
+ */
 workspaceRouter.post(
   "/transactions/:id/verify",
   asyncHandler(async (req, res) => {
-    const { workspaceId } = ctx(req);
-    const tx = await getTransactionScoped(workspaceId, param(req, "id"));
-    const deliveryEvidence = tx.evidence.find(
-      (e) => e.type === "Delivery confirmation" && e.verified
-    );
-    if (!deliveryEvidence) {
-      throw new ApiError(
-        409,
-        "A verified delivery confirmation is required before this transaction can be completed."
-      );
-    }
-    res.json({ verified: true, evidenceId: deliveryEvidence.id });
+    const { workspaceId, userName } = ctx(req);
+    const input = parseWith(verifyDeliverySchema, req.body);
+    const tx = await verifyDelivery(workspaceId, param(req, "id"), input, userName);
+    res.json({ transaction: serializeTransaction(tx) });
   })
 );
 
@@ -275,20 +266,8 @@ workspaceRouter.get(
   })
 );
 
-workspaceRouter.post(
-  "/transactions/:id/evidence",
-  asyncHandler(async (req, res) => {
-    const { workspaceId } = ctx(req);
-    const input = parseWith(evidenceSchema, req.body);
-    const evidence = await recordManualEvidence(workspaceId, param(req, "id"), input);
-    res.status(201).json({
-      evidence: { ...evidence, receivedAt: evidence.receivedAt.toISOString() },
-    });
-  })
-);
-
 // ---------------------------------------------------------------------------
-// Exceptions
+// Exceptions — created by the execution engine, resolved by humans
 // ---------------------------------------------------------------------------
 
 workspaceRouter.get(
@@ -301,16 +280,6 @@ workspaceRouter.get(
       statusFilter = status as ExceptionStatus;
     }
     res.json(await listExceptions(workspaceId, statusFilter));
-  })
-);
-
-workspaceRouter.post(
-  "/transactions/:id/exceptions",
-  asyncHandler(async (req, res) => {
-    const { workspaceId } = ctx(req);
-    const input = parseWith(simulateExceptionSchema, req.body);
-    const exception = await createSimulatedException(workspaceId, param(req, "id"), input.type);
-    res.status(201).json({ exception });
   })
 );
 

@@ -192,6 +192,16 @@ button {
 }
 
 @media (max-width: 1023px) {
+  /*
+   * Below the desktop breakpoint the shell stacks vertically: the mobile top
+   * bar sits above the content instead of competing with it in a row. The
+   * top bar never stretches to the height of the page content, so the menu
+   * trigger always stays pinned to the top on every route, regardless of how
+   * long the page is.
+   */
+  .app-layout {
+    flex-direction: column;
+  }
   .sidebar {
     display: none;
   }
@@ -199,6 +209,9 @@ button {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex: none;
+    width: 100%;
+    max-width: 100vw;
     padding: 12px 24px;
     background: #ffffff;
     border-bottom: 1px solid var(--line);
@@ -207,6 +220,8 @@ button {
     z-index: 30;
   }
   .main-content {
+    width: 100%;
+    min-width: 0;
     padding: 24px 24px 48px 24px;
   }
   .detail-grid {

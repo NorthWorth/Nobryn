@@ -33,13 +33,88 @@ export const NEXT_STATE: Record<TransactionState, TransactionState | null> = {
   COMPLETED: null,
 };
 
-export const ACTION_LABELS: Record<TransactionState, string | null> = {
-  CREATED: "Send to supplier",
-  ACCEPTED: "Start fulfillment",
-  FULFILLING: "Confirm delivery",
-  DELIVERED: "Verify completion",
-  COMPLETED: null,
-};
+export type ExternalEventType =
+  | "SUPPLIER_CONFIRMATION"
+  | "FULFILLMENT_STARTED"
+  | "DELIVERY_REPORTED"
+  | "SHIPMENT_CREATED"
+  | "SHIPMENT_DISPATCHED"
+  | "SHIPMENT_IN_TRANSIT"
+  | "SUPPLIER_TIMEOUT"
+  | "DELIVERY_DELAYED"
+  | "PO_CREATED"
+  | "PO_SYNCED"
+  | "PO_UPDATED";
+
+export interface SimulatedEventOption {
+  type: ExternalEventType;
+  label: string;
+  source: string;
+}
+
+/**
+ * Simulated integrations, grouped as the external event sources Nobryn
+ * receives claims and events from. Real integrations reuse the same
+ * ingestion pipeline later.
+ */
+export const EVENT_SOURCE_GROUPS: {
+  source: string;
+  events: SimulatedEventOption[];
+}[] = [
+  {
+    source: "Supplier API",
+    events: [
+      { type: "SUPPLIER_CONFIRMATION", label: "Supplier confirmation", source: "Supplier API" },
+      { type: "FULFILLMENT_STARTED", label: "Fulfillment started", source: "Supplier API" },
+      { type: "DELIVERY_REPORTED", label: "Delivery reported", source: "Supplier API" },
+      { type: "SUPPLIER_TIMEOUT", label: "Supplier timeout", source: "Supplier API" },
+    ],
+  },
+  {
+    source: "Warehouse system",
+    events: [
+      { type: "DELIVERY_REPORTED", label: "Delivery reported (goods received)", source: "Warehouse system" },
+    ],
+  },
+  {
+    source: "Logistics provider",
+    events: [
+      { type: "SHIPMENT_CREATED", label: "Shipment created", source: "Logistics provider" },
+      { type: "SHIPMENT_DISPATCHED", label: "Shipment dispatched", source: "Logistics provider" },
+      { type: "SHIPMENT_IN_TRANSIT", label: "Shipment in transit", source: "Logistics provider" },
+      { type: "DELIVERY_DELAYED", label: "Delivery delayed", source: "Logistics provider" },
+      { type: "DELIVERY_REPORTED", label: "Delivery reported", source: "Logistics provider" },
+    ],
+  },
+  {
+    source: "ERP",
+    events: [
+      { type: "PO_CREATED", label: "Purchase order created", source: "ERP" },
+      { type: "PO_SYNCED", label: "Purchase order synchronized", source: "ERP" },
+      { type: "PO_UPDATED", label: "Purchase order updated", source: "ERP" },
+    ],
+  },
+];
+
+/** Observed reality compared against the original transaction requirements. */
+export interface Reconciliation {
+  expected: number;
+  received: number;
+  difference: number;
+  result: "MATCH" | "MISMATCH";
+  approved: boolean;
+  at: string;
+}
+
+/** A delivery claim received from an external source, awaiting verification. */
+export interface DeliveryClaim {
+  id: string;
+  source: string;
+  reference: string;
+  receivedAt: string;
+  reportedQuantity: number | null;
+  notes: string | null;
+}
 
 export const EXCEPTION_LABELS: Record<ExceptionType, string> = {
   SUPPLIER_TIMEOUT: "Supplier timeout",
@@ -122,6 +197,9 @@ export interface TransactionDetail {
   evidence: EvidenceItem[];
   exceptions: ExceptionItem[];
   activity: ActivityEventItem[];
+  reconciliations: Reconciliation[];
+  deliveryClaim: DeliveryClaim | null;
+  completionBlocking: string[];
 }
 
 export interface Counterparty {

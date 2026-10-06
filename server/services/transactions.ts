@@ -10,11 +10,13 @@ import type {
 import { TransactionState, ExceptionType, ExceptionStatus, Prisma } from "@prisma/client";
 import { ApiError } from "../errors.js";
 import {
+  EVENT_CATALOG,
   EXCEPTION_META,
-  EXECUTION_STEPS,
+  EVIDENCE,
+  REQUIRED_VERIFIED_EVIDENCE,
   NEXT_STATE,
-  REQUIRED_EVIDENCE_FOR_COMPLETION,
   STATE_ORDER,
+  type ExternalEventType,
 } from "../domain.js";
 
 export type TransactionWithRelations = Transaction & {
@@ -24,6 +26,149 @@ export type TransactionWithRelations = Transaction & {
   exceptions: Exception[];
   activity: ActivityEvent[];
 };
+
+/**
+ * A reconciliation record as persisted in activity metadata:
+ * expected reality vs observed reality, and the result of comparing them.
+ */
+export interface ReconciliationRecord {
+  expected: number;
+  received: number;
+  difference: number;
+  result: "MATCH" | "MISMATCH";
+  approved: boolean;
+  at: string;
+}
+
+/** A delivery claim that has been received but not yet confirmed by a human. */
+export interface DeliveryClaimInfo {
+  id: string;
+  source: string;
+  reference: string;
+  receivedAt: string;
+  reportedQuantity: number | null;
+  notes: string | null;
+}
+
+/** How long a purchase order may sit in CREATED without supplier confirmation. */
+const SUPPLIER_TIMEOUT_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+const txInclude = {
+  counterparty: true,
+  items: true,
+  evidence: true,
+  exceptions: true,
+  activity: true,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Predicates shared by the execution engine
+// ---------------------------------------------------------------------------
+
+function hasVerified(t: TransactionWithRelations, evidenceType: string): boolean {
+  return t.evidence.some((e) => e.verified && e.type === evidenceType);
+}
+
+function openExceptions(t: TransactionWithRelations): Exception[] {
+  return t.exceptions.filter((x) => x.status !== ExceptionStatus.RESOLVED);
+}
+
+function expectedQuantity(t: TransactionWithRelations): number {
+  const total = t.items.reduce((sum, item) => sum + Number(item.quantity), 0);
+  return Math.round(total * 100) / 100;
+}
+
+function parseReconciliation(a: ActivityEvent): ReconciliationRecord | null {
+  if (a.type !== "RECONCILED") return null;
+  const m = (a.metadata ?? null) as Record<string, unknown> | null;
+  if (
+    !m ||
+    typeof m.expected !== "number" ||
+    typeof m.received !== "number" ||
+    (m.result !== "MATCH" && m.result !== "MISMATCH")
+  ) {
+    return null;
+  }
+  return {
+    expected: m.expected,
+    received: m.received,
+    difference: typeof m.difference === "number" ? m.difference : 0,
+    result: m.result,
+    approved: m.approved === true,
+    at: a.createdAt.toISOString(),
+  };
+}
+
+function reconciliationsOf(t: TransactionWithRelations): ReconciliationRecord[] {
+  return t.activity
+    .map(parseReconciliation)
+    .filter((r): r is ReconciliationRecord => r !== null)
+    .sort((a, b) => a.at.localeCompare(b.at));
+}
+
+function deliveryClaimOf(t: TransactionWithRelations): DeliveryClaimInfo | null {
+  const claim = t.evidence.find(
+    (e) => e.type === EVIDENCE.deliveryClaim && !e.verified
+  );
+  if (!claim) return null;
+  const act = t.activity.find((a) => {
+    const m = (a.metadata ?? null) as Record<string, unknown> | null;
+    return a.type === "CLAIM_RECEIVED" && m?.reference === claim.reference;
+  });
+  const m = (act?.metadata ?? null) as Record<string, unknown> | null;
+  return {
+    id: claim.id,
+    source: claim.source,
+    reference: claim.reference,
+    receivedAt: claim.receivedAt.toISOString(),
+    reportedQuantity:
+      m && typeof m.reportedQuantity === "number" ? m.reportedQuantity : null,
+    notes: claim.notes,
+  };
+}
+
+/**
+ * Why the transaction cannot proceed to/through completion right now.
+ * Open exceptions and unresolved mismatches block at any stage; missing
+ * evidence only becomes a blocking reason once delivery is DELIVERED.
+ */
+function completionBlockers(t: TransactionWithRelations): string[] {
+  const reasons: string[] = [];
+
+  const open = openExceptions(t);
+  if (open.length > 0) {
+    reasons.push(
+      `Blocking exception${open.length > 1 ? "s" : ""}: ${open
+        .map((x) => EXCEPTION_META[x.type].label)
+        .join(", ")}.`
+    );
+  }
+
+  const latest = reconciliationsOf(t).at(-1);
+  const mismatchOpen = !!latest && latest.result !== "MATCH";
+  const mismatchExceptionOpen = t.exceptions.some(
+    (x) => x.type === ExceptionType.QUANTITY_MISMATCH && x.status !== ExceptionStatus.RESOLVED
+  );
+  if (mismatchOpen && !mismatchExceptionOpen) {
+    reasons.push("Reconciliation shows a quantity mismatch that has not been resolved.");
+  }
+
+  if (t.state === TransactionState.DELIVERED) {
+    for (const evidenceType of REQUIRED_VERIFIED_EVIDENCE) {
+      if (!hasVerified(t, evidenceType)) {
+        reasons.push(`${evidenceType} has not been verified.`);
+      }
+    }
+    if (!latest) {
+      reasons.push("Delivery has not been reconciled against the ordered quantity.");
+    }
+  }
+  return reasons;
+}
+
+// ---------------------------------------------------------------------------
+// Serialization
+// ---------------------------------------------------------------------------
 
 export function serializeTransaction(t: TransactionWithRelations) {
   return {
@@ -77,20 +222,15 @@ export function serializeTransaction(t: TransactionWithRelations) {
         createdAt: a.createdAt.toISOString(),
       }))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    reconciliations: reconciliationsOf(t),
+    deliveryClaim: deliveryClaimOf(t),
+    completionBlocking: completionBlockers(t),
   };
 }
 
 export type SerializedTransaction = ReturnType<typeof serializeTransaction>;
 
-const txInclude = {
-  counterparty: true,
-  items: true,
-  evidence: true,
-  exceptions: true,
-  activity: true,
-} as const;
-
-async function getTransactionScoped(workspaceId: string, id: string) {
+export async function getTransactionScoped(workspaceId: string, id: string) {
   const tx = await prisma.transaction.findFirst({
     where: { id, workspaceId },
     include: txInclude,
@@ -115,6 +255,10 @@ async function addActivity(
       metadata: (metadata ?? undefined) as never,
     },
   });
+}
+
+function makeReference(prefix: string): string {
+  return `${prefix}${Math.floor(100000 + Math.random() * 899999)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,99 +333,384 @@ export async function createTransaction(
 }
 
 // ---------------------------------------------------------------------------
-// State machine + simulated execution engine
+// Execution engine: state changes, exceptions, completion
 // ---------------------------------------------------------------------------
 
-function nextStepFor(state: TransactionState) {
-  return EXECUTION_STEPS[state];
+async function applyStateChange(
+  db: Prisma.TransactionClient,
+  transactionId: string,
+  target: TransactionState
+) {
+  await db.transaction.update({
+    where: { id: transactionId },
+    data: { state: target },
+  });
+  await db.activityEvent.create({
+    data: {
+      transactionId,
+      type: "STATE_CHANGED",
+      description: `Transaction moved to ${stateLabel(target)}`,
+    },
+  });
 }
 
-export async function advanceTransaction(
+async function createExceptionRecord(
+  db: Prisma.TransactionClient,
+  transactionId: string,
+  type: ExceptionType,
+  descriptionOverride?: string,
+  nextActionOverride?: string,
+  metadata?: Record<string, unknown>
+) {
+  const meta = EXCEPTION_META[type];
+  const exception = await db.exception.create({
+    data: {
+      transactionId,
+      type,
+      status: ExceptionStatus.OPEN,
+      description: descriptionOverride ?? meta.description,
+      nextAction: nextActionOverride ?? meta.nextAction,
+    },
+  });
+  await db.activityEvent.create({
+    data: {
+      transactionId,
+      type: "EXCEPTION_DETECTED",
+      description: `Exception detected: ${meta.label}`,
+      metadata: (metadata ?? undefined) as never,
+    },
+  });
+  return exception;
+}
+
+/**
+ * Timer-based detection run by the engine itself (no external event needed):
+ *  - SUPPLIER_TIMEOUT when no confirmation arrived within the expected window.
+ *  - DELIVERY_DELAY when the expected delivery date passed without delivery.
+ */
+export async function evaluateAutomaticExceptions(workspaceId: string, id: string) {
+  const tx = await getTransactionScoped(workspaceId, id);
+  const now = Date.now();
+
+  const hasExceptionOf = (type: ExceptionType) =>
+    tx.exceptions.some((x) => x.type === type);
+
+  const candidates: { type: ExceptionType; metadata: Record<string, unknown> }[] = [];
+
+  if (
+    tx.state === TransactionState.CREATED &&
+    !hasVerified(tx, EVIDENCE.supplierConfirmation) &&
+    now - tx.createdAt.getTime() > SUPPLIER_TIMEOUT_WINDOW_MS &&
+    !hasExceptionOf(ExceptionType.SUPPLIER_TIMEOUT)
+  ) {
+    candidates.push({
+      type: ExceptionType.SUPPLIER_TIMEOUT,
+      metadata: {
+        source: "Nobryn",
+        expected: "Supplier confirmation",
+        actual: "No confirmation within the expected window",
+      },
+    });
+  }
+
+  if (
+    tx.state !== TransactionState.DELIVERED &&
+    tx.state !== TransactionState.COMPLETED &&
+    !hasVerified(tx, EVIDENCE.deliveryConfirmation) &&
+    tx.expectedDeliveryDate.getTime() < now &&
+    !hasExceptionOf(ExceptionType.DELIVERY_DELAY)
+  ) {
+    candidates.push({
+      type: ExceptionType.DELIVERY_DELAY,
+      metadata: {
+        source: "Nobryn",
+        expected: "Delivery claim by the expected delivery date",
+        actual: "No delivery claim received",
+      },
+    });
+  }
+
+  if (candidates.length === 0) return false;
+
+  await prisma.$transaction(async (db) => {
+    for (const candidate of candidates) {
+      await createExceptionRecord(
+        db,
+        tx.id,
+        candidate.type,
+        undefined,
+        undefined,
+        candidate.metadata
+      );
+    }
+  });
+  return true;
+}
+
+/** Read path: run engine-side detection, then return the fresh transaction. */
+export async function getTransactionForDisplay(workspaceId: string, id: string) {
+  await evaluateAutomaticExceptions(workspaceId, id);
+  return getTransactionScoped(workspaceId, id);
+}
+
+function unexpectedStateMessage(
+  def: (typeof EVENT_CATALOG)[ExternalEventType],
+  state: TransactionState
+): string {
+  switch (def.type) {
+    case "SUPPLIER_CONFIRMATION":
+      return "The purchase order has already been accepted.";
+    case "FULFILLMENT_STARTED":
+      return "Fulfillment cannot start before the supplier confirms the order.";
+    case "DELIVERY_REPORTED":
+      if (state === TransactionState.CREATED || state === TransactionState.ACCEPTED) {
+        return "Delivery cannot be reported before fulfillment has started.";
+      }
+      break;
+    default:
+      break;
+  }
+  return `${def.label} is not expected while the transaction is in state ${stateLabel(state)}.`;
+}
+
+// ---------------------------------------------------------------------------
+// Event ingestion (simulated integrations are simply the current event source)
+// ---------------------------------------------------------------------------
+
+export interface IngestResult {
+  transaction: TransactionWithRelations;
+  duplicate: boolean;
+  awaitingVerification: boolean;
+}
+
+export async function ingestExternalEvent(
   workspaceId: string,
   id: string,
-  targetState: TransactionState
-) {
+  input: { type: ExternalEventType; source?: string; reportedQuantity?: number }
+): Promise<IngestResult> {
   const tx = await getTransactionScoped(workspaceId, id);
+  const def = EVENT_CATALOG[input.type];
+  const source =
+    input.source && def.sources.includes(input.source) ? input.source : def.source;
 
-  const expected = NEXT_STATE[tx.state as keyof typeof NEXT_STATE];
-  if (!expected || expected !== targetState) {
-    if (targetState === "COMPLETED" && tx.state !== "DELIVERED") {
-      throw new ApiError(
-        409,
-        "A transaction cannot be completed before delivery has been verified."
-      );
-    }
-    throw new ApiError(
-      409,
-      `A transaction in state ${tx.state} cannot move directly to ${targetState}.`
-    );
+  // 1. Duplicate events are acknowledged but never recorded twice.
+  if (def.evidenceType && tx.evidence.some((e) => e.type === def.evidenceType)) {
+    return { transaction: tx, duplicate: true, awaitingVerification: false };
+  }
+  if (
+    def.exceptionType &&
+    tx.exceptions.some((x) => x.type === def.exceptionType)
+  ) {
+    return { transaction: tx, duplicate: true, awaitingVerification: false };
   }
 
-  // Completion is evidence-based: require a verified delivery confirmation.
-  if (targetState === TransactionState.COMPLETED) {
-    const openBlocking = tx.exceptions.some(
-      (x) => x.status === ExceptionStatus.OPEN || x.status === ExceptionStatus.IN_PROGRESS
-    );
-    if (openBlocking) {
+  // 2. Validate the claim against the execution rules.
+  if (def.exceptionType === ExceptionType.SUPPLIER_TIMEOUT) {
+    if (hasVerified(tx, EVIDENCE.supplierConfirmation)) {
       throw new ApiError(
         409,
-        "This transaction cannot be completed while a blocking exception is open."
+        "The supplier has already confirmed this order — there is no timeout."
       );
     }
-    const deliveryEvidence = tx.evidence.find(
-      (e) => e.type === REQUIRED_EVIDENCE_FOR_COMPLETION && e.verified
-    );
-    if (!deliveryEvidence) {
-      throw new ApiError(
-        409,
-        "A verified delivery confirmation is required before this transaction can be completed."
-      );
+  } else if (def.exceptionType === ExceptionType.DELIVERY_DELAY) {
+    if (hasVerified(tx, EVIDENCE.deliveryConfirmation)) {
+      throw new ApiError(409, "Delivery has already been verified for this transaction.");
     }
+  } else if (def.expectedState && tx.state !== def.expectedState) {
+    throw new ApiError(409, unexpectedStateMessage(def, tx.state));
   }
 
-  const step = nextStepFor(tx.state);
+  const eventRef = def.evidenceType ? makeReference(def.referencePrefix) : "";
 
-  return prisma.$transaction(async (db) => {
-    // Evidence recorded by the simulated execution engine for this transition.
-    if (step) {
-      await db.evidence.create({
-        data: {
-          transactionId: tx.id,
-          type: step.evidenceType,
-          source: step.source,
-          reference: `${step.referencePrefix}${Math.floor(100000 + Math.random() * 899999)}`,
-          verified: true,
-          notes: `Recorded via simulated ${step.source}.`,
-        },
-      });
-    }
-
-    await db.transaction.update({
-      where: { id: tx.id },
-      data: { state: targetState },
-    });
-
-    if (step) {
-      await db.activityEvent.create({
-        data: {
-          transactionId: tx.id,
-          type: step.activityType,
-          description: step.activityDescription,
-        },
-      });
-    }
+  await prisma.$transaction(async (db) => {
+    // 3. Record the claim exactly as the external source reported it.
     await db.activityEvent.create({
       data: {
         transactionId: tx.id,
-        type: "STATE_CHANGED",
-        description: `Transaction moved to ${stateLabel(targetState)}`,
+        type: "CLAIM_RECEIVED",
+        description: def.claimDescription.replace("{source}", source),
+        metadata: {
+          source,
+          type: def.type,
+          ...(eventRef ? { reference: eventRef } : {}),
+          ...(input.reportedQuantity != null
+            ? { reportedQuantity: input.reportedQuantity }
+            : {}),
+        } as never,
       },
     });
 
-    // When delivery is confirmed, run the quantity verification check that can
-    // surface a quantity mismatch exception (deterministic demo behavior).
-    if (targetState === TransactionState.DELIVERED && tx.purchaseOrderNumber === "PO-10482") {
-      await createExceptionRecord(db, tx.id, ExceptionType.QUANTITY_MISMATCH);
+    // 4. Exception-producing events become system-generated exceptions.
+    if (def.exceptionType) {
+      await createExceptionRecord(
+        db,
+        tx.id,
+        def.exceptionType,
+        undefined,
+        undefined,
+        {
+          source,
+          expected:
+            def.exceptionType === ExceptionType.SUPPLIER_TIMEOUT
+              ? "Supplier confirmation"
+              : "Delivery claim by the expected delivery date",
+          actual: def.summary,
+        }
+      );
+      return;
+    }
+
+    // 5. Record the claim as evidence. CLAIM != VERIFICATION: only events
+    //    whose business rule permits it are verified on receipt.
+    const automatic = def.verification === "AUTOMATIC";
+    const notes = automatic
+      ? `Received from ${source}. Verified automatically under the execution rules.`
+      : input.reportedQuantity != null
+        ? `Reported quantity: ${input.reportedQuantity} units. Awaiting human verification.`
+        : `Reported by ${source}. Awaiting human verification.`;
+
+    await db.evidence.create({
+      data: {
+        transactionId: tx.id,
+        type: def.evidenceType as string,
+        source,
+        reference: eventRef,
+        verified: automatic,
+        notes,
+      },
+    });
+
+    if (automatic) {
+      await db.activityEvent.create({
+        data: {
+          transactionId: tx.id,
+          type: "EVENT_VERIFIED",
+          description: `${def.label} verified automatically (${source})`,
+        },
+      });
+      // 6. Advance the state machine only where the execution rules allow it.
+      if (
+        def.stateEffect &&
+        def.expectedState &&
+        tx.state === def.expectedState &&
+        NEXT_STATE[tx.state] === def.stateEffect
+      ) {
+        await applyStateChange(db, tx.id, def.stateEffect);
+      }
+    }
+  });
+
+  await evaluateAutomaticExceptions(workspaceId, id);
+  const updated = await getTransactionScoped(workspaceId, id);
+  return {
+    transaction: updated,
+    duplicate: false,
+    awaitingVerification: def.verification === "HUMAN",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Human verification of a delivery claim + reconciliation
+// ---------------------------------------------------------------------------
+
+export async function verifyDelivery(
+  workspaceId: string,
+  id: string,
+  input: { receivedQuantity: number; deliveryDate: string; note?: string },
+  verifiedBy: string
+): Promise<TransactionWithRelations> {
+  const tx = await getTransactionScoped(workspaceId, id);
+
+  if (tx.state !== TransactionState.FULFILLING) {
+    throw new ApiError(
+      409,
+      `A delivery claim can only be confirmed while the transaction is fulfilling. ` +
+        `This transaction is in state ${stateLabel(tx.state)}.`
+    );
+  }
+  const claim = tx.evidence.find(
+    (e) => e.type === EVIDENCE.deliveryClaim && !e.verified
+  );
+  if (!claim) {
+    throw new ApiError(
+      409,
+      "There is no delivery claim awaiting verification for this transaction."
+    );
+  }
+  if (hasVerified(tx, EVIDENCE.deliveryConfirmation)) {
+    throw new ApiError(409, "Delivery has already been verified for this transaction.");
+  }
+
+  const expected = expectedQuantity(tx);
+  const received = Math.round(input.receivedQuantity * 100) / 100;
+  const difference = Math.round((received - expected) * 100) / 100;
+  const result: "MATCH" | "MISMATCH" = Math.abs(difference) < 0.005 ? "MATCH" : "MISMATCH";
+  const deliveryDate = new Date(input.deliveryDate);
+
+  return prisma.$transaction(async (db) => {
+    // Verified evidence: the human-confirmed real-world outcome.
+    await db.evidence.create({
+      data: {
+        transactionId: tx.id,
+        type: EVIDENCE.deliveryConfirmation,
+        source: claim.source,
+        reference: makeReference("GRN-"),
+        verified: true,
+        notes: [
+          `Delivery date: ${deliveryDate.toISOString().slice(0, 10)}.`,
+          `Confirmed by ${verifiedBy}.`,
+          input.note ? `Note: ${input.note}` : null,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      },
+    });
+    await db.activityEvent.create({
+      data: {
+        transactionId: tx.id,
+        type: "CLAIM_VERIFIED",
+        description: `Delivery confirmed by ${verifiedBy}`,
+        metadata: {
+          claimReference: claim.reference,
+          deliveryDate: deliveryDate.toISOString(),
+          receivedQuantity: received,
+        } as never,
+      },
+    });
+
+    // Reconcile observed reality against the original transaction requirements.
+    await db.activityEvent.create({
+      data: {
+        transactionId: tx.id,
+        type: "RECONCILED",
+        description:
+          result === "MATCH"
+            ? `Delivery reconciled: ${expected} ordered / ${received} received — MATCH`
+            : `Delivery reconciled: ${expected} ordered / ${received} received — MISMATCH (difference ${difference})`,
+        metadata: {
+          expected,
+          received,
+          difference,
+          result,
+          source: claim.source,
+        } as never,
+      },
+    });
+
+    if (result === "MATCH") {
+      // Verified + reconciled: the transaction may advance, then completion
+      // is evaluated against every required condition.
+      await applyStateChange(db, tx.id, TransactionState.DELIVERED);
+      await runCompletionEvaluation(db, tx.id);
+    } else {
+      await createExceptionRecord(
+        db,
+        tx.id,
+        ExceptionType.QUANTITY_MISMATCH,
+        `Expected ${expected} units, received ${received} units (difference ${difference} units).`,
+        EXCEPTION_META[ExceptionType.QUANTITY_MISMATCH].nextAction,
+        { source: "Reconciliation", expected, received, difference }
+      );
     }
 
     return db.transaction.findUniqueOrThrow({
@@ -291,70 +720,103 @@ export async function advanceTransaction(
   });
 }
 
-async function createExceptionRecord(
+/**
+ * Completion requires every required condition to hold — it can never be
+ * triggered by a generic "complete" action.
+ */
+async function runCompletionEvaluation(
   db: Prisma.TransactionClient,
-  transactionId: string,
-  type: ExceptionType,
-  descriptionOverride?: string,
-  nextActionOverride?: string
-) {
-  const meta = EXCEPTION_META[type];
-  return db.exception.create({
+  transactionId: string
+): Promise<boolean> {
+  const tx = await db.transaction.findUnique({
+    where: { id: transactionId },
+    include: txInclude,
+  });
+  if (!tx || tx.state !== TransactionState.DELIVERED) return false;
+  if (hasVerified(tx, EVIDENCE.completion)) return false;
+  if (completionBlockers(tx).length > 0) return false;
+
+  await db.evidence.create({
     data: {
       transactionId,
-      type,
-      status: ExceptionStatus.OPEN,
-      description: descriptionOverride ?? meta.description,
-      nextAction: nextActionOverride ?? meta.nextAction,
+      type: EVIDENCE.completion,
+      source: "Nobryn",
+      reference: makeReference("VR-"),
+      verified: true,
+      notes:
+        "Completion verification passed: required evidence verified, delivery reconciled, no blocking exceptions.",
     },
   });
+  await db.activityEvent.create({
+    data: {
+      transactionId,
+      type: "COMPLETION_VERIFIED",
+      description: "Completion verified",
+    },
+  });
+  await applyStateChange(db, transactionId, TransactionState.COMPLETED);
+  return true;
 }
 
-export async function recordManualEvidence(
-  workspaceId: string,
-  id: string,
-  input: { type: string; source: string; reference: string; notes?: string }
-) {
-  await getTransactionScoped(workspaceId, id);
-  const evidence = await prisma.evidence.create({
+/**
+ * Re-evaluate the underlying transaction condition after a human resolves an
+ * exception. Resolution never moves a transaction forward by itself — it only
+ * re-runs the checks that decide whether execution may continue.
+ */
+async function reevaluateTransaction(db: Prisma.TransactionClient, transactionId: string) {
+  const tx = await db.transaction.findUnique({
+    where: { id: transactionId },
+    include: txInclude,
+  });
+  if (!tx) return;
+
+  await db.activityEvent.create({
     data: {
-      transactionId: id,
-      type: input.type,
-      source: input.source,
-      reference: input.reference,
-      notes: input.notes,
-      verified: true,
+      transactionId,
+      type: "REEVALUATED",
+      description: "Transaction re-evaluated after exception resolution",
     },
   });
-  await addActivity(id, "EVIDENCE_RECEIVED", `Evidence received: ${input.type}`, {
-    evidenceId: evidence.id,
-  });
-  return evidence;
+
+  if (tx.state === TransactionState.FULFILLING) {
+    if (!hasVerified(tx, EVIDENCE.deliveryConfirmation)) return;
+    if (openExceptions(tx).length > 0) return;
+
+    const latest = reconciliationsOf(tx).at(-1);
+    if (!latest) return;
+
+    if (latest.result === "MISMATCH") {
+      // The mismatch was resolved/approved by a human: record the approved
+      // reconciliation so the evidence chain shows why execution continues.
+      await db.activityEvent.create({
+        data: {
+          transactionId,
+          type: "RECONCILED",
+          description: `Delivery reconciled with approved variance: ${latest.expected} ordered / ${latest.received} received — MATCH`,
+          metadata: {
+            expected: latest.expected,
+            received: latest.received,
+            difference: latest.difference,
+            result: "MATCH",
+            approved: true,
+          } as never,
+        },
+      });
+    }
+
+    await applyStateChange(db, transactionId, TransactionState.DELIVERED);
+    await runCompletionEvaluation(db, transactionId);
+    return;
+  }
+
+  if (tx.state === TransactionState.DELIVERED) {
+    await runCompletionEvaluation(db, transactionId);
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Exceptions
 // ---------------------------------------------------------------------------
-
-export async function createSimulatedException(
-  workspaceId: string,
-  transactionId: string,
-  type: ExceptionType
-) {
-  await getTransactionScoped(workspaceId, transactionId);
-  const created = await prisma.$transaction(async (db) => {
-    const exception = await createExceptionRecord(db, transactionId, type);
-    await db.activityEvent.create({
-      data: {
-        transactionId,
-        type: "EXCEPTION_DETECTED",
-        description: `Exception detected: ${EXCEPTION_META[type].label}`,
-      },
-    });
-    return exception;
-  });
-  return created;
-}
 
 export async function resolveException(
   workspaceId: string,
@@ -386,9 +848,11 @@ export async function resolveException(
         transactionId: exception.transactionId,
         type: "EXCEPTION_RESOLVED",
         description: `Exception resolved: ${EXCEPTION_META[exception.type].label}`,
-        metadata: { resolutionNote } as never,
+        metadata: { resolutionNote, resolvedBy } as never,
       },
     });
+    // Resolution triggers re-evaluation of the underlying condition.
+    await reevaluateTransaction(db, exception.transactionId);
     return updated;
   });
 }
@@ -455,4 +919,4 @@ export function listTransactionsOptions(
   return where;
 }
 
-export { getTransactionScoped, addActivity };
+export { addActivity };
