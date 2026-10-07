@@ -2,10 +2,11 @@ import { STATE_LABELS, STATE_ORDER } from "../lib/types";
 import type { TransactionState } from "../lib/types";
 
 /**
- * State progression: completed states show a check, the current state a filled
- * blue dot, future states a muted hollow dot. Vertical below the desktop
- * breakpoint (so it never forces horizontal overflow in narrow columns),
- * horizontal with a wrap fallback on desktop.
+ * State progression: completed states show a check, the current state a
+ * filled lime dot (the active transaction indicator), future states a muted
+ * hollow dot. Vertical below the desktop breakpoint (so it never forces
+ * horizontal overflow in narrow columns), horizontal with a wrap fallback on
+ * desktop.
  */
 export function TransactionStateTimeline({ state }: { state: TransactionState }) {
   const currentIndex = STATE_ORDER.indexOf(state);
@@ -35,10 +36,10 @@ export function TransactionStateTimeline({ state }: { state: TransactionState })
                   border: done
                     ? "1px solid #15803D"
                     : current
-                      ? "1px solid #2563EB"
-                      : "1px solid #CBD5E1",
-                  background: done ? "#15803D" : current ? "#2563EB" : "#FFFFFF",
-                  color: done || current ? "#FFFFFF" : "#94A3B8",
+                      ? "1px solid #06110D"
+                      : "1px solid #D9E0DC",
+                  background: done ? "#15803D" : current ? "#C8FF00" : "#FFFFFF",
+                  color: done ? "#FFFFFF" : current ? "#06110D" : "#8E9892",
                 }}
               >
                 {done ? "✓" : current ? "●" : ""}
@@ -47,7 +48,7 @@ export function TransactionStateTimeline({ state }: { state: TransactionState })
                 style={{
                   fontSize: 13,
                   fontWeight: current ? 600 : 400,
-                  color: done ? "#15803D" : current ? "#0B1220" : "#94A3B8",
+                  color: done ? "#15803D" : current ? "#06110D" : "#647067",
                 }}
               >
                 {STATE_LABELS[s]}
@@ -61,7 +62,7 @@ export function TransactionStateTimeline({ state }: { state: TransactionState })
                 style={{
                   flex: 1,
                   height: 1,
-                  background: done ? "#86EFAC" : "#E2E8F0",
+                  background: done ? "#86EFAC" : "#D9E0DC",
                   margin: "0 12px",
                   minWidth: 24,
                 }}

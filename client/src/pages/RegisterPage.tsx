@@ -122,7 +122,7 @@ export default function RegisterPage() {
       </form>
       <p className="text-muted" style={{ fontSize: 13, textAlign: "center", margin: "16px 0 0 0" }}>
         Already have an account?{" "}
-        <Link to="/login" style={{ color: "#2563EB", fontWeight: 500 }}>
+        <Link to="/login" style={{ color: "var(--ink)", fontWeight: 500 }}>
           Log in
         </Link>
       </p>

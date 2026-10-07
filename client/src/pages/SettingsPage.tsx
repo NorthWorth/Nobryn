@@ -151,7 +151,7 @@ export default function SettingsPage() {
               type="button"
               className="text-12"
               style={{
-                color: "#2563EB",
+                color: "var(--ink)",
                 fontWeight: 500,
                 cursor: "pointer",
                 background: "none",
@@ -181,7 +181,7 @@ export default function SettingsPage() {
             }}
           >
             {policies.map((policy) => (
-              <li key={policy.id ?? policy.name} style={{ border: "1px solid #E2E8F0", borderRadius: 6, padding: 16 }}>
+              <li key={policy.id ?? policy.name} style={{ border: "1px solid #D9E0DC", borderRadius: 6, padding: 16 }}>
                 <div
                   style={{
                     display: "flex",

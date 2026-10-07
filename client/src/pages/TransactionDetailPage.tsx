@@ -31,14 +31,18 @@ import {
 } from "../components/ui";
 import { TransactionStateTimeline } from "../components/TransactionStateTimeline";
 
-/** Audit-trail category colors — existing palette tokens only. */
+/**
+ * Audit-trail category colors — Nobryn palette tokens. Structural categories
+ * stay neutral (Bio Black family), semantic categories keep their meaning
+ * (verification/completion green, exception red, claim informational blue).
+ */
 const CATEGORY_COLOR: Record<ActivityCategory, string> = {
   CLAIM: "#1D4ED8",
   VERIFICATION: "#15803D",
-  RECONCILIATION: "#0B1220",
-  "STATE CHANGE": "#64748B",
+  RECONCILIATION: "#06110D",
+  "STATE CHANGE": "#647067",
   EXCEPTION: "#B91C1C",
-  EXECUTION: "#94A3B8",
+  EXECUTION: "#8E9892",
   COMPLETION: "#15803D",
 };
 
@@ -208,7 +212,7 @@ export default function TransactionDetailPage() {
   if (error || !tx) {
     return (
       <div className="content-max" style={{ maxWidth: "none" }}>
-        <Link to="/app/transactions" className="text-13" style={{ color: "#64748B", display: "inline-block", marginBottom: 16 }}>
+        <Link to="/app/transactions" className="text-13" style={{ color: "#647067", display: "inline-block", marginBottom: 16 }}>
           ← Transactions
         </Link>
         <div className="card">
@@ -229,7 +233,7 @@ export default function TransactionDetailPage() {
 
   return (
     <div className="content-max" style={{ maxWidth: "none" }}>
-      <Link to="/app/transactions" style={{ color: "#64748B", display: "inline-block", marginBottom: 16 }}>
+      <Link to="/app/transactions" style={{ color: "#647067", display: "inline-block", marginBottom: 16 }}>
         ← Transactions
       </Link>
 
@@ -274,9 +278,9 @@ export default function TransactionDetailPage() {
                   right: 0,
                   top: "calc(100% + 4px)",
                   background: "#fff",
-                  border: "1px solid #E2E8F0",
+                  border: "1px solid #D9E0DC",
                   borderRadius: 6,
-                  boxShadow: "0 4px 12px rgba(11,18,32,0.08)",
+                  boxShadow: "0 4px 12px rgba(6,17,13,0.08)",
                   zIndex: 50,
                   minWidth: 260,
                   maxWidth: "calc(100vw - 32px)",
@@ -289,7 +293,7 @@ export default function TransactionDetailPage() {
                   style={{
                     padding: "6px 12px",
                     fontSize: 12,
-                    color: "#94A3B8",
+                    color: "#8E9892",
                     display: "flex",
                     gap: 6,
                     alignItems: "center",
@@ -307,7 +311,7 @@ export default function TransactionDetailPage() {
                         padding: "8px 12px 2px",
                         fontSize: 11,
                         fontWeight: 600,
-                        color: "#64748B",
+                        color: "#647067",
                       }}
                     >
                       {group.source}
@@ -327,7 +331,7 @@ export default function TransactionDetailPage() {
                           cursor: "pointer",
                           fontSize: 13,
                         }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "#F8FAFC")}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(6, 17, 13, 0.03)")}
                         onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
                         onClick={() => void sendEvent(event)}
                       >
@@ -390,7 +394,7 @@ export default function TransactionDetailPage() {
               Awaiting verification
             </span>
           </div>
-          <p style={{ margin: "8px 0 0 0", fontSize: 13, color: "#475569" }}>
+          <p style={{ margin: "8px 0 0 0", fontSize: 13, color: "#3E4A43" }}>
             The {claim.source.toLowerCase()} reported that this order was delivered (
             {claim.reference} · {formatDateTime(claim.receivedAt)}). Please confirm what was
             actually received.
@@ -503,7 +507,7 @@ export default function TransactionDetailPage() {
                   <li
                     key={e.id}
                     style={{
-                      border: "1px solid #E2E8F0",
+                      border: "1px solid #D9E0DC",
                       borderRadius: 6,
                       padding: "12px 16px",
                     }}
@@ -536,7 +540,7 @@ export default function TransactionDetailPage() {
                 {tx.reconciliations.map((reconciliation, idx) => (
                   <div
                     key={`${reconciliation.at}-${idx}`}
-                    style={{ border: "1px solid #E2E8F0", borderRadius: 6, padding: "12px 16px" }}
+                    style={{ border: "1px solid #D9E0DC", borderRadius: 6, padding: "12px 16px" }}
                   >
                     <div
                       style={{
@@ -595,9 +599,9 @@ export default function TransactionDetailPage() {
                 {tx.activity.map((a, idx) => (
                   <li key={a.id} style={{ display: "flex", gap: 12 }}>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "none" }}>
-                      <span aria-hidden style={{ width: 8, height: 8, borderRadius: 9999, background: "#CBD5E1", marginTop: 7 }} />
+                      <span aria-hidden style={{ width: 8, height: 8, borderRadius: 9999, background: "#D9E0DC", marginTop: 7 }} />
                       {idx < tx.activity.length - 1 ? (
-                        <span aria-hidden style={{ width: 1, flex: 1, background: "#E2E8F0", minHeight: 20 }} />
+                        <span aria-hidden style={{ width: 1, flex: 1, background: "#D9E0DC", minHeight: 20 }} />
                       ) : null}
                     </div>
                     <div style={{ paddingBottom: 16 }}>
@@ -671,7 +675,7 @@ export default function TransactionDetailPage() {
             ) : (
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
                 {tx.exceptions.map((x) => (
-                  <li key={x.id} style={{ border: "1px solid #E2E8F0", borderRadius: 6, padding: 16 }}>
+                  <li key={x.id} style={{ border: "1px solid #D9E0DC", borderRadius: 6, padding: 16 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                         <span className="badge badge-warning">
@@ -755,7 +759,7 @@ export default function TransactionDetailPage() {
                 {tx.events.map((event) => (
                   <li
                     key={event.id}
-                    style={{ border: "1px solid #E2E8F0", borderRadius: 6, padding: "12px 16px" }}
+                    style={{ border: "1px solid #D9E0DC", borderRadius: 6, padding: "12px 16px" }}
                   >
                     <div
                       style={{
@@ -992,7 +996,7 @@ function ExecutionList({
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "none" }}>
             <StepMarker state={step.state} />
             {idx < steps.length - 1 ? (
-              <span aria-hidden style={{ width: 1, flex: 1, background: "#E2E8F0", minHeight: 24 }} />
+              <span aria-hidden style={{ width: 1, flex: 1, background: "#D9E0DC", minHeight: 24 }} />
             ) : null}
           </div>
           <div style={{ paddingBottom: 16, flex: 1 }}>
@@ -1047,7 +1051,7 @@ function ExecutionList({
                             ? "#B91C1C"
                             : line.tone === "success"
                               ? "#15803D"
-                              : "#475569",
+                              : "#3E4A43",
                         fontWeight: line.tone ? 500 : 400,
                         minWidth: 0,
                         overflowWrap: "anywhere",
@@ -1093,13 +1097,18 @@ function StepMarker({ state }: { state: ExecutionStep["state"] }) {
           state === "done"
             ? "#15803D"
             : state === "processing"
-              ? "#2563EB"
+              ? "#C8FF00"
               : state === "awaiting"
                 ? "#B45309"
                 : state === "blocked"
                   ? "#B91C1C"
-                  : "#E2E8F0",
-        border: state === "pending" ? "1px solid #CBD5E1" : "none",
+                  : "#D9E0DC",
+        border:
+          state === "pending"
+            ? "1px solid #D9E0DC"
+            : state === "processing"
+              ? "1px solid #06110D"
+              : "none",
       }}
     >
       {state === "done" ? "✓" : state === "blocked" ? "!" : ""}
@@ -1302,7 +1311,7 @@ function EvidenceChain({ tx }: { tx: TransactionDetail }) {
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "none" }}>
             <StepMarker state={node.state} />
             {idx < nodes.length - 1 ? (
-              <span aria-hidden style={{ width: 1, flex: 1, background: "#E2E8F0", minHeight: 24 }} />
+              <span aria-hidden style={{ width: 1, flex: 1, background: "#D9E0DC", minHeight: 24 }} />
             ) : null}
           </div>
           <div style={{ paddingBottom: 16, flex: 1 }}>
@@ -1333,7 +1342,7 @@ function EvidenceChain({ tx }: { tx: TransactionDetail }) {
                             ? "#B91C1C"
                             : row.tone === "success"
                               ? "#15803D"
-                              : "#475569",
+                              : "#3E4A43",
                         fontWeight: row.tone ? 500 : 400,
                         minWidth: 0,
                         overflowWrap: "anywhere",

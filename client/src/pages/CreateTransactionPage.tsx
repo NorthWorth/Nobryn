@@ -197,7 +197,7 @@ export default function CreateTransactionPage() {
               <button
                 type="button"
                 className="text-12"
-                style={{ color: "#2563EB", fontWeight: 500, cursor: "pointer", background: "none", border: "none", padding: 0, textAlign: "left" }}
+                style={{ color: "var(--ink)", fontWeight: 500, cursor: "pointer", background: "none", border: "none", padding: 0, textAlign: "left" }}
                 onClick={() => setNewCounterparty(true)}
               >
                 + Create new counterparty
@@ -233,7 +233,7 @@ export default function CreateTransactionPage() {
               <button
                 type="button"
                 className="text-12"
-                style={{ color: "#2563EB", fontWeight: 500, cursor: "pointer", background: "none", border: "none", padding: 0, textAlign: "left" }}
+                style={{ color: "var(--ink)", fontWeight: 500, cursor: "pointer", background: "none", border: "none", padding: 0, textAlign: "left" }}
                 onClick={() => setNewCounterparty(false)}
               >
                 ← Choose an existing counterparty

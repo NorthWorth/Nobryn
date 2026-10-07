@@ -26,7 +26,7 @@ const STEPS = [
 
 export default function LandingPage() {
   return (
-    <div style={{ background: "#F8FAFC", minHeight: "100vh" }}>
+    <div style={{ background: "var(--canvas)", minHeight: "100vh" }}>
       <header className="landing-nav">
         <div className="landing-container landing-nav-inner" style={{ padding: 0 }}>
           <div>
@@ -80,7 +80,7 @@ export default function LandingPage() {
           >
             {STEPS.map((step) => (
               <div key={step.number} className="card card-pad">
-                <div className="text-12 mono" style={{ color: "#2563EB", fontWeight: 600 }}>
+                <div className="text-12 mono" style={{ color: "var(--bio-black)", fontWeight: 600 }}>
                   {step.number}
                 </div>
                 <h3 className="card-heading" style={{ marginTop: 8 }}>
@@ -109,10 +109,10 @@ export default function LandingPage() {
             }}
           >
             <div className="card card-pad">
-              <div className="text-12" style={{ color: "#64748B", fontWeight: 500 }}>
+              <div className="text-12" style={{ color: "#647067", fontWeight: 500 }}>
                 Purchase Order #PO-10482
               </div>
-              <div className="text-12" style={{ color: "#94A3B8", marginTop: 4, letterSpacing: "0.02em" }}>
+              <div className="text-12" style={{ color: "#8E9892", marginTop: 4, letterSpacing: "0.02em" }}>
                 ACME INDUSTRIAL → GLOBAL COMPONENTS
               </div>
               <div style={{ fontSize: 22, fontWeight: 600, marginTop: 12 }} className="mono">
@@ -181,14 +181,14 @@ function LifecycleRow({ label, done, current }: { label: string; done?: boolean;
           justifyContent: "center",
           fontSize: 11,
           fontWeight: 600,
-          border: done ? "1px solid #15803D" : current ? "1px solid #2563EB" : "1px solid #CBD5E1",
-          background: done ? "#15803D" : current ? "#2563EB" : "#FFFFFF",
-          color: done || current ? "#FFFFFF" : "#94A3B8",
+          border: done ? "1px solid #15803D" : current ? "1px solid #06110D" : "1px solid #D9E0DC",
+          background: done ? "#15803D" : current ? "#C8FF00" : "#FFFFFF",
+          color: done ? "#FFFFFF" : current ? "#06110D" : "#8E9892",
         }}
       >
         {done ? "✓" : current ? "●" : ""}
       </span>
-      <span style={{ color: done ? "#15803D" : current ? "#0B1220" : "#94A3B8", fontWeight: current ? 600 : 400 }}>
+      <span style={{ color: done ? "#15803D" : current ? "#06110D" : "#647067", fontWeight: current ? 600 : 400 }}>
         {label}
       </span>
     </li>
@@ -197,8 +197,8 @@ function LifecycleRow({ label, done, current }: { label: string; done?: boolean;
 
 function ExampleMeta({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, borderBottom: "1px solid #E2E8F0", paddingBottom: 10 }}>
-      <span className="text-12" style={{ color: "#64748B" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, borderBottom: "1px solid #D9E0DC", paddingBottom: 10 }}>
+      <span className="text-12" style={{ color: "#647067" }}>
         {label}
       </span>
       <span style={{ fontSize: 14, fontWeight: 500 }}>{value}</span>

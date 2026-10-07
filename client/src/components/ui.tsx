@@ -89,10 +89,15 @@ export function Textarea({ invalid, className, ...rest }: TextareaHTMLAttributes
 // Status badges
 // ---------------------------------------------------------------------------
 
+/**
+ * State badges: created/finished states use neutral/semantic colors; the
+ * in-flight states (Accepted, Fulfilling) are the active transaction
+ * indicator and use the Bio Black + lime-dot brand treatment.
+ */
 const STATE_BADGE: Record<TransactionState, string> = {
   CREATED: "badge-neutral",
-  ACCEPTED: "badge-info",
-  FULFILLING: "badge-info",
+  ACCEPTED: "badge-active",
+  FULFILLING: "badge-active",
   DELIVERED: "badge-success",
   COMPLETED: "badge-success",
 };

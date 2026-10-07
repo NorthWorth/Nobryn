@@ -144,7 +144,7 @@ export default function NotificationsPage() {
                   key={notification.id}
                   style={{
                     borderBottom:
-                      idx < data.notifications.length - 1 ? "1px solid #E2E8F0" : "none",
+                      idx < data.notifications.length - 1 ? "1px solid #D9E0DC" : "none",
                   }}
                 >
                   <button
@@ -163,7 +163,7 @@ export default function NotificationsPage() {
                       cursor: openingId === notification.id ? "wait" : "pointer",
                       opacity: openingId === notification.id ? 0.7 : 1,
                     }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "#F8FAFC")}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(6, 17, 13, 0.03)")}
                     onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
                   >
                     <span
@@ -190,7 +190,7 @@ export default function NotificationsPage() {
                               width: 7,
                               height: 7,
                               borderRadius: 9999,
-                              background: "#2563EB",
+                              background: "#06110D",
                               flex: "none",
                             }}
                           />
@@ -216,7 +216,7 @@ export default function NotificationsPage() {
                       </span>
                     </span>
                     <span
-                      style={{ fontSize: 13, color: "#64748B", overflowWrap: "anywhere" }}
+                      style={{ fontSize: 13, color: "#647067", overflowWrap: "anywhere" }}
                     >
                       {notification.description}
                     </span>

@@ -88,11 +88,6 @@ export function AppShell() {
           className={({ isActive }) =>
             `nav-item${isActive && (item.end ?? true) ? " active" : ""}`
           }
-          style={({ isActive }) =>
-            isActive && (item.end ?? true)
-              ? undefined
-              : { color: "#64748B" }
-          }
           onClick={() => setDrawerOpen(false)}
         >
           <item.icon />
@@ -124,13 +119,13 @@ export function AppShell() {
           >
             <span>{workspace?.name ?? "Workspace"}</span>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-              <path d="M3 4.5L6 7.5L9 4.5" stroke="#64748B" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M3 4.5L6 7.5L9 4.5" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
           {wsOpen ? (
             <div className="workspace-menu" role="listbox">
               <div style={{ padding: "8px 12px", fontSize: 13 }}>{workspace?.name}</div>
-              <div style={{ padding: "0 12px 8px 12px", fontSize: 12, color: "#94A3B8" }}>
+              <div style={{ padding: "0 12px 8px 12px", fontSize: 12, color: "#647067" }}>
                 One workspace on this account
               </div>
             </div>
@@ -141,7 +136,7 @@ export function AppShell() {
           <div style={{ fontSize: 13, fontWeight: 500 }}>
             {user ? `${user.firstName} ${user.lastName}` : ""}
           </div>
-          <div className="user-email" style={{ fontSize: 12, color: "#94A3B8" }}>{user?.email}</div>
+          <div className="user-email" style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>{user?.email}</div>
           <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} onClick={handleLogout}>
             Log out
           </button>
@@ -164,7 +159,7 @@ export function AppShell() {
             onClick={() => setDrawerOpen(true)}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-              <path d="M3 5h14M3 10h14M3 15h14" stroke="#0B1220" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="M3 5h14M3 10h14M3 15h14" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </button>
         </div>
@@ -180,7 +175,7 @@ export function AppShell() {
               </div>
               <button type="button" ref={closeBtnRef} className="menu-btn" aria-label="Close navigation menu" onClick={() => setDrawerOpen(false)}>
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-                  <path d="M4.5 4.5l9 9m0-9l-9 9" stroke="#0B1220" strokeWidth="1.5" strokeLinecap="round" />
+                  <path d="M4.5 4.5l9 9m0-9l-9 9" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
               </button>
             </div>
@@ -211,6 +206,8 @@ export function AppShell() {
 
 /**
  * Subtle unread indicator: a small bell linking to the notifications list.
+ * The lime dot is a controlled accent — visible on the Bio Black shell, and
+ * the unread count is always exposed to screen readers as text.
  */
 function NotificationsBell({ unread }: { unread: number }) {
   return (
@@ -223,12 +220,12 @@ function NotificationsBell({ unread }: { unread: number }) {
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
         <path
           d="M9 2.5c-2.2 0-4 1.8-4 4 0 3-1.25 4.25-1.25 4.25h10.5C13.25 10.75 12 9.5 12 6.5c0-2.2-1.8-4-3-4z"
-          stroke="#0B1220"
+          stroke="#FFFFFF"
           strokeWidth="1.4"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <path d="M7.75 13.25a1.25 1.25 0 002.5 0" stroke="#0B1220" strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M7.75 13.25a1.25 1.25 0 002.5 0" stroke="#FFFFFF" strokeWidth="1.4" strokeLinecap="round" />
       </svg>
       {unread > 0 ? (
         <span
@@ -240,7 +237,7 @@ function NotificationsBell({ unread }: { unread: number }) {
             width: 7,
             height: 7,
             borderRadius: 9999,
-            background: "#B91C1C",
+            background: "#C8FF00",
             border: "1px solid #FFFFFF",
           }}
         />

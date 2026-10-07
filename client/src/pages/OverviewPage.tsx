@@ -96,7 +96,7 @@ export default function OverviewPage() {
                         padding: "16px 24px",
                         borderBottom:
                           idx < summary.actionRequired.length - 1
-                            ? "1px solid #E2E8F0"
+                            ? "1px solid #D9E0DC"
                             : "none",
                       }}
                     >
@@ -124,7 +124,7 @@ export default function OverviewPage() {
                       <div style={{ fontSize: 14, fontWeight: 500, marginTop: 6 }}>
                         {item.title}
                       </div>
-                      <div style={{ fontSize: 13, color: "#64748B", marginTop: 2 }}>
+                      <div style={{ fontSize: 13, color: "#647067", marginTop: 2 }}>
                         {item.description}
                       </div>
                       <div className="text-12 text-muted" style={{ marginTop: 2 }}>
@@ -175,7 +175,7 @@ export default function OverviewPage() {
             <section className="lg:col-span-2" aria-label="Recent transactions">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
                 <h2 className="section-heading" style={{ fontSize: 20 }}>Recent transactions</h2>
-                <Link to="/app/transactions" className="text-12" style={{ color: "#2563EB", fontWeight: 500 }}>
+                <Link to="/app/transactions" className="text-12" style={{ color: "var(--ink)", fontWeight: 500 }}>
                   View all
                 </Link>
               </div>
@@ -233,7 +233,7 @@ export default function OverviewPage() {
             <section aria-label="Open exceptions">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
                 <h2 className="section-heading" style={{ fontSize: 20 }}>Open exceptions</h2>
-                <Link to="/app/exceptions" className="text-12" style={{ color: "#2563EB", fontWeight: 500 }}>
+                <Link to="/app/exceptions" className="text-12" style={{ color: "var(--ink)", fontWeight: 500 }}>
                   View all
                 </Link>
               </div>
@@ -252,7 +252,7 @@ export default function OverviewPage() {
                         key={x.id}
                         style={{
                           padding: "12px 16px",
-                          borderBottom: idx < summary.openExceptions.length - 1 ? "1px solid #E2E8F0" : "none",
+                          borderBottom: idx < summary.openExceptions.length - 1 ? "1px solid #D9E0DC" : "none",
                         }}
                       >
                         <Link to={`/app/transactions/${x.transactionId}`} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -508,7 +508,7 @@ function ActivityList() {
                 width: 8,
                 height: 8,
                 borderRadius: 9999,
-                background: "#CBD5E1",
+                background: "#D9E0DC",
                 marginTop: 7,
                 flex: "none",
               }}

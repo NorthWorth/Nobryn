@@ -75,7 +75,7 @@ export default function LoginPage() {
       </form>
       <p className="text-muted" style={{ fontSize: 13, textAlign: "center", margin: "16px 0 0 0" }}>
         No account?{" "}
-        <Link to="/register" style={{ color: "#2563EB", fontWeight: 500 }}>
+        <Link to="/register" style={{ color: "var(--ink)", fontWeight: 500 }}>
           Create one
         </Link>
       </p>
@@ -93,7 +93,7 @@ export function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div style={{ minHeight: "100vh", background: "#F8FAFC", display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", flexDirection: "column" }}>
       <div style={{ padding: "24px 32px" }}>
         <Link to="/">
           <span style={{ fontSize: 17, fontWeight: 600 }}>Nobryn</span>

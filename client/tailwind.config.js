@@ -4,14 +4,17 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#0B1220",
-        muted: "#64748B",
-        subtle: "#94A3B8",
-        line: "#E2E8F0",
-        canvas: "#F8FAFC",
+        // Nobryn brand palette: Bio Black + Synthetic Lime + Soft Chrome.
+        ink: "#06110D",
+        muted: "#647067",
+        subtle: "#8E9892",
+        line: "#D9E0DC",
+        canvas: "#E8ECF1",
         brand: {
-          DEFAULT: "#2563EB",
-          dark: "#1D4ED8",
+          DEFAULT: "#06110D",
+          dark: "#0E2119",
+          lime: "#C8FF00",
+          chrome: "#E8ECF1",
         },
         success: "#15803D",
         warning: "#B45309",
