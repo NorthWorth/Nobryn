@@ -46,7 +46,9 @@ export async function startApi(): Promise<string> {
   const base = `http://127.0.0.1:${process.env.API_PORT}`;
   for (let i = 0; i < 100; i++) {
     try {
-      const r = await fetch(`${base}/api/health`);
+      // The public liveness endpoint: database-free and rate-limit exempt, so
+      // readiness polling can never be throttled or blocked by the database.
+      const r = await fetch(`${base}/health`);
       if (r.ok) return base;
     } catch {
       /* not up yet */

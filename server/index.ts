@@ -6,14 +6,25 @@ import { authRouter } from "./routes/auth.js";
 import { apiRouter } from "./routes/api.js";
 import { healthRouter } from "./routes/health.js";
 import { requestTiming } from "./observability/timing.js";
+import { rateLimit } from "./rateLimit.js";
 
 const app = express();
 app.disable("x-powered-by");
+
+// One proxy hop in front (Render/Vercel edge): lets `req.ip` — and therefore
+// the rate limiter's per-client counters — use the real client address from
+// X-Forwarded-For instead of the proxy's address (which every client shares).
+app.set("trust proxy", 1);
 
 // Lightweight timing instrumentation for every request: records duration and
 // database time per route and logs slow/normal API calls (health probes are
 // measured but excluded from metrics and logs).
 app.use(requestTiming());
+
+// Rate limit: everything except the public `GET /health` liveness endpoint
+// (see rateLimit.ts). Runs before body parsing so rejected requests are cheap.
+app.use(rateLimit());
+
 app.use(express.json({ limit: "1mb" }));
 
 const corsOrigin = process.env.CORS_ORIGIN;

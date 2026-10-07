@@ -12,12 +12,15 @@ import {
 } from "../observability/metrics.js";
 
 /**
- * GET /api/observability — the health/performance snapshot consumed by
- * Nobryn's internal operational dashboard.
+ * GET /api/observability — the health/performance contract Nobryn exposes for
+ * an external observability dashboard (Rayern, connected later from its own
+ * codebase). Nobryn ships no monitoring UI: this endpoint is the integration
+ * surface, and its response shape is documented in README.md.
  *
  * Mounted behind the workspace auth stack (see routes/api.ts), so it is only
- * available to signed-in users. External monitors must use the public,
- * unauthenticated `GET /health` endpoint instead.
+ * available to signed-in sessions — publishing `/health` does NOT make the
+ * metrics public. External uptime monitors must use the public, unrate-limited
+ * `GET /health` endpoint instead.
  *
  * Everything here is produced by the in-process metrics store: API status,
  * database status and round-trip latency, recent latency percentiles, slow

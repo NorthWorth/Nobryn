@@ -196,11 +196,56 @@ The API exposes two health endpoints designed to be called by an external
 monitor later — **no monitoring provider is configured today, and none is
 required until one is chosen**:
 
-| Endpoint | Auth | Purpose |
-| --- | --- | --- |
-| `GET /health` | none | Liveness: process up, Express responding. No database access, a few milliseconds. |
-| `GET /health/deep` | none | Diagnostics: adds one PostgreSQL round trip with latency. Returns `503` + `status: "degraded"` if the database is unreachable. |
-| `GET /api/observability` | session | Snapshot for Nobryn's own dashboard: API/database status, latency percentiles, slow operations, error rate, recent failures. |
+| Endpoint | Auth | Rate limit | Purpose |
+| --- | --- | --- | --- |
+| `GET /health` | none | **exempt** | Liveness: process up, Express responding. No database access, a few milliseconds. |
+| `GET /health/deep` | none | normal | Diagnostics: adds one PostgreSQL round trip with latency. Returns `503` + `status: "degraded"` if the database is unreachable. |
+| `GET /api/observability` | session | normal | Operational snapshot for the **Rayern observability dashboard** (a separate application, connected later). Nobryn ships **no monitoring UI**. |
+
+### Rate limiting
+
+All routes are rate limited per client IP (default **300 requests / 60s**,
+configurable with `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_MS`) and return
+`429` with a `Retry-After` header and the normal `{ "error": … }` shape.
+
+- `GET /health` is the **single exempt route** (`server/rateLimit.ts`), so a
+  future external monitor is never blocked by normal API traffic. Because it
+  bypasses the limiter it stays database-free and trivially cheap.
+- `GET /health/deep` is **not** exempt — it is limited like every other route.
+- Authentication, transactions, mutations and integrations are all limited;
+  rate limiting is never disabled globally.
+- Covered by `server/tests/rate-limit.ts` (runs with `bun run test`).
+
+### Observability API contract (for Rayern)
+
+`GET /api/observability` is the stable contract an external dashboard consumes.
+It requires a Nobryn session — publishing `/health` does not make metrics
+public:
+
+```
+Authorization: Bearer <token>      # token from POST /api/auth/login
+```
+
+Nobryn issues no service credentials today and none are invented here: Rayern
+stores its own Nobryn sign-in (or a dedicated account provisioned later) in its
+own configuration. Response fields:
+
+```
+service, version, build, timestamp, uptimeSeconds
+api:      { status, requests, errors, errorRatePercent, requestsInWindow, lastRequestAt }
+database: { status, latencyMs, lastCheckedAt }
+latency:  { windowSamples, p50Ms, p95Ms, maxMs, avgMs, avgDbMs, avgDbQueries }
+routes[]:           { path, count, errors, totalMs, maxMs, dbMs }
+slowOperations[]:   { method, path, status, totalMs, dbMs, dbQueries, at }
+recentRequests[]:   { method, path, status, totalMs, dbMs, dbQueries, at }
+recentFailures[]:   { method, path, status, totalMs, dbMs, dbQueries, at }
+databaseOperations: { slow[], recent[] }   # { model, operation, ms, at }
+health:   { status, service, version, build, uptime, timestamp }
+```
+
+Values are per-process and reset when the instance restarts (expected on the
+Render free tier). Nothing sensitive is included: no connection strings,
+credentials, certificates, tokens, query strings or request bodies.
 
 Recommended future monitor configuration (not configured yet):
 

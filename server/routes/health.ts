@@ -12,6 +12,11 @@ import {
 /**
  * Health endpoints for external monitoring.
  *
+ * RATE LIMITING: `GET /health` is the single route exempt from the API rate
+ * limiter (see rateLimit.ts) so a monitor can always reach it; it must stay
+ * database-free and trivially cheap as a result. `GET /health/deep` is NOT
+ * exempt and is limited like every other endpoint.
+ *
  * FUTURE MONITORING CONFIGURATION (not configured yet — no monitoring
  * provider is wired up, and none is required until one is chosen):
  *
