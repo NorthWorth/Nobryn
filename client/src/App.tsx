@@ -12,6 +12,7 @@ import TransactionDetailPage from "./pages/TransactionDetailPage";
 import ExceptionsPage from "./pages/ExceptionsPage";
 import CounterpartiesPage from "./pages/CounterpartiesPage";
 import IntegrationsPage from "./pages/IntegrationsPage";
+import NotificationsPage from "./pages/NotificationsPage";
 import SettingsPage from "./pages/SettingsPage";
 import type { ReactNode } from "react";
 
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="exceptions" element={<ExceptionsPage />} />
             <Route path="counterparties" element={<CounterpartiesPage />} />
             <Route path="integrations" element={<IntegrationsPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

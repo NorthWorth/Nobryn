@@ -12,7 +12,8 @@
     "db:push": "prisma db push",
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
-    "verify:tls": "node scripts/verify-tls.mjs"
+    "verify:tls": "node scripts/verify-tls.mjs",
+    "test": "tsx tests/e2e.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

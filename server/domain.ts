@@ -288,6 +288,126 @@ export const EXCEPTION_META: Record<
 };
 
 // ---------------------------------------------------------------------------
+// Transaction policies
+// ---------------------------------------------------------------------------
+
+/**
+ * The smallest reusable policy model: values the domain engine consults for
+ * verification, reconciliation, tolerance, timeouts and completion.
+ */
+export interface PolicyValues {
+  id?: string;
+  name: string;
+  deliveryConfirmationRequired: boolean;
+  quantityReconciliationRequired: boolean;
+  quantityTolerance: number;
+  confirmationWindowHours: number;
+  blockingMismatches: boolean;
+}
+
+export const DEFAULT_POLICY: PolicyValues = {
+  name: "Standard purchase order",
+  deliveryConfirmationRequired: true,
+  quantityReconciliationRequired: true,
+  quantityTolerance: 0,
+  confirmationWindowHours: 24,
+  blockingMismatches: true,
+};
+
+/** Human-readable completion rule derived from the policy flags. */
+export function completionConditionText(policy: PolicyValues): string {
+  const parts: string[] = [
+    policy.deliveryConfirmationRequired ? "Verified delivery" : "Delivery claim received",
+  ];
+  if (policy.quantityReconciliationRequired) {
+    parts.push("successful quantity reconciliation");
+  }
+  parts.push("no blocking exceptions");
+  return parts.join(" + ");
+}
+
+/** Validated on the backend for every create/update. */
+export const policySchema = z.object({
+  name: z.string().trim().min(1, "Policy name is required.").max(80, "Policy name is too long."),
+  deliveryConfirmationRequired: z.boolean(),
+  quantityReconciliationRequired: z.boolean(),
+  quantityTolerance: z
+    .number({ message: "Quantity tolerance is required." })
+    .nonnegative("Quantity tolerance cannot be negative."),
+  confirmationWindowHours: z
+    .number({ message: "Confirmation window is required." })
+    .int("Confirmation window must be a whole number of hours.")
+    .min(1, "Confirmation window must be at least 1 hour.")
+    .max(8760, "Confirmation window cannot exceed one year."),
+  blockingMismatches: z.boolean(),
+});
+
+// ---------------------------------------------------------------------------
+// Activity audit categories
+// ---------------------------------------------------------------------------
+
+export type ActivityCategory =
+  | "CLAIM"
+  | "VERIFICATION"
+  | "RECONCILIATION"
+  | "STATE CHANGE"
+  | "EXCEPTION"
+  | "EXECUTION"
+  | "COMPLETION";
+
+export const ACTIVITY_CATEGORY: Record<string, ActivityCategory> = {
+  TRANSACTION_CREATED: "EXECUTION",
+  CLAIM_RECEIVED: "CLAIM",
+  CLAIM_VERIFIED: "VERIFICATION",
+  EVENT_VERIFIED: "VERIFICATION",
+  RECONCILED: "RECONCILIATION",
+  STATE_CHANGED: "STATE CHANGE",
+  EXCEPTION_DETECTED: "EXCEPTION",
+  EXCEPTION_RESOLVED: "EXCEPTION",
+  REEVALUATED: "EXECUTION",
+  EVENT_REJECTED: "EXECUTION",
+  COMPLETION_VERIFIED: "COMPLETION",
+};
+
+export function activityCategory(type: string): ActivityCategory {
+  return ACTIVITY_CATEGORY[type] ?? "EXECUTION";
+}
+
+// ---------------------------------------------------------------------------
+// Notifications (generated from domain events, not UI state)
+// ---------------------------------------------------------------------------
+
+export const NOTIFICATION_TYPE = {
+  VERIFICATION_REQUIRED: "VERIFICATION_REQUIRED",
+  VERIFICATION_COMPLETED: "VERIFICATION_COMPLETED",
+  QUANTITY_MISMATCH: "QUANTITY_MISMATCH",
+  SUPPLIER_CONFIRMATION_OVERDUE: "SUPPLIER_CONFIRMATION_OVERDUE",
+  DELIVERY_DELAYED: "DELIVERY_DELAYED",
+  EXCEPTION_RESOLVED: "EXCEPTION_RESOLVED",
+  TRANSACTION_COMPLETED: "TRANSACTION_COMPLETED",
+  EVENT_REJECTED: "EVENT_REJECTED",
+} as const;
+
+export type NotificationType = (typeof NOTIFICATION_TYPE)[keyof typeof NOTIFICATION_TYPE];
+
+// ---------------------------------------------------------------------------
+// Integration event provenance
+// ---------------------------------------------------------------------------
+
+export const EVENT_STATUS = {
+  PROCESSED: "PROCESSED",
+  DUPLICATE: "DUPLICATE",
+  REJECTED: "REJECTED",
+} as const;
+
+export const EVENT_RESULT = {
+  CLAIM_CREATED: "CLAIM_CREATED",
+  EXCEPTION_CREATED: "EXCEPTION_CREATED",
+  IGNORED: "IGNORED",
+  REJECTED: "REJECTED",
+} as const;
+
+// ---------------------------------------------------------------------------
 // Validation schemas
 // ---------------------------------------------------------------------------
 
@@ -325,6 +445,7 @@ export const createTransactionSchema = z
     expectedDeliveryDate: z
       .string()
       .refine((v) => !Number.isNaN(Date.parse(v)), "A valid delivery date is required."),
+    policyId: z.string().trim().min(1).optional(),
     items: z
       .array(
         z.object({
@@ -369,6 +490,8 @@ export const ingestEventSchema = z.object({
     .number({ message: "Reported quantity is required." })
     .positive("Reported quantity must be greater than zero.")
     .optional(),
+  /** Stable identifier of the original event, used for idempotency. */
+  eventId: z.string().trim().min(1, "Event ID cannot be empty.").max(160, "Event ID is too long.").optional(),
 });
 
 /**

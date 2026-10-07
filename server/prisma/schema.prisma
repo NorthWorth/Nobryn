@@ -28,6 +28,18 @@ enum ExceptionType {
   QUANTITY_MISMATCH
 }
 
+enum ExceptionSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  ERROR
+}
+
 model User {
   id           String   @id @default(cuid())
   firstName    String
@@ -52,6 +64,9 @@ model Workspace {
   owner         User           @relation(fields: [ownerId], references: [id])
   counterparties Counterparty[]
   transactions  Transaction[]
+  policies      TransactionPolicy[]
+  notifications Notification[]
+  integrationEvents IntegrationEvent[]
 
   @@index([ownerId])
 }
@@ -81,20 +96,47 @@ model Transaction {
   currency              String           @default("USD")
   expectedDeliveryDate  DateTime
   state                 TransactionState @default(CREATED)
+  policyId              String?
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
 
   workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   counterparty Counterparty     @relation(fields: [counterpartyId], references: [id])
+  policy      TransactionPolicy? @relation(fields: [policyId], references: [id], onDelete: SetNull)
   items       TransactionItem[]
   evidence    Evidence[]
   exceptions  Exception[]
   activity    ActivityEvent[]
+  notifications Notification[]
+  integrationEvents IntegrationEvent[]
 
   @@unique([workspaceId, purchaseOrderNumber])
   @@index([workspaceId, state])
   @@index([workspaceId, updatedAt])
   @@index([counterpartyId])
+}
+
+/**
+ * Policies define how a transaction is expected to execute and complete.
+ * They drive verification, reconciliation, tolerance, timeout and completion
+ * behavior in the domain engine — not just display.
+ */
+model TransactionPolicy {
+  id                          String   @id @default(cuid())
+  workspaceId                 String
+  name                        String
+  deliveryConfirmationRequired Boolean  @default(true)
+  quantityReconciliationRequired Boolean @default(true)
+  quantityTolerance            Decimal  @default(0) @db.Decimal(14, 2)
+  confirmationWindowHours      Int      @default(24)
+  blockingMismatches           Boolean  @default(true)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([workspaceId])
 }
 
 model TransactionItem {
@@ -123,15 +165,19 @@ model Evidence {
   transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@index([transactionId])
-}
-
-model Exception {
-  id             String          @id @default(cuid())
+}model Exception {
+  id             String            @id @default(cuid())
   transactionId  String
   type           ExceptionType
-  status         ExceptionStatus @default(OPEN)
+  status         ExceptionStatus   @default(OPEN)
+  severity       ExceptionSeverity @default(MEDIUM)
+  blocking       Boolean           @default(true)
+  owner          String?
   description    String
-  detectedAt     DateTime        @default(now())
+  expected       Decimal?          @db.Decimal(14, 2)
+  observed       Decimal?          @db.Decimal(14, 2)
+  difference     Decimal?          @db.Decimal(14, 2)
+  detectedAt     DateTime          @default(now())
   nextAction     String?
   resolutionNote String?
   resolvedAt     DateTime?
@@ -141,6 +187,50 @@ model Exception {
 
   @@index([transactionId])
   @@index([status])
+}
+
+/** Operational notifications generated from domain events (not UI noise). */
+model Notification {
+  id            String               @id @default(cuid())
+  workspaceId   String
+  transactionId String?
+  type          String
+  severity      NotificationSeverity @default(INFO)
+  title         String
+  description   String
+  targetPath    String
+  readAt        DateTime?
+  createdAt     DateTime             @default(now())
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, readAt])
+  @@index([workspaceId, createdAt])
+}
+
+/**
+ * Provenance of every incoming external/simulated event: what arrived, from
+ * where, and what Nobryn did with it (processed, duplicate, rejected).
+ */
+model IntegrationEvent {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  transactionId String?
+  eventId       String
+  source        String
+  type          String
+  receivedAt    DateTime  @default(now())
+  processedAt   DateTime?
+  status        String
+  result        String?
+  detail        String?
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, receivedAt])
+  @@index([transactionId])
 }
 
 model ActivityEvent {

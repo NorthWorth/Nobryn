@@ -6,7 +6,7 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 import { useEffect, useRef } from "react";
-import type { ExceptionStatus, TransactionState } from "../lib/types";
+import type { ExceptionStatus, Severity, TransactionState } from "../lib/types";
 import { EXCEPTION_LABELS, EXCEPTION_STATUS_LABELS, STATE_LABELS } from "../lib/types";
 
 // ---------------------------------------------------------------------------
@@ -117,6 +117,21 @@ export function ExceptionStatusBadge({ status }: { status: ExceptionStatus }) {
     <span className={`badge ${EXCEPTION_STATUS_BADGE[status]}`}>
       <span className="dot" aria-hidden />
       {EXCEPTION_STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+const SEVERITY_BADGE: Record<Severity, string> = {
+  HIGH: "badge-error",
+  MEDIUM: "badge-warning",
+  LOW: "badge-info",
+};
+
+export function SeverityBadge({ severity }: { severity: Severity }) {
+  return (
+    <span className={`badge ${SEVERITY_BADGE[severity]}`}>
+      <span className="dot" aria-hidden />
+      {severity === "HIGH" ? "High" : severity === "MEDIUM" ? "Medium" : "Low"}
     </span>
   );
 }

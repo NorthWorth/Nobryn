@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiClientError } from "../lib/api";
 import { formatMoney } from "../lib/types";
-import type { Counterparty } from "../lib/types";
+import type { Counterparty, PolicyInfo } from "../lib/types";
 import { useToast } from "../lib/toast";
 import { Button, Field, Input, Select } from "../components/ui";
 
@@ -19,6 +19,8 @@ export default function CreateTransactionPage() {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [counterparties, setCounterparties] = useState<Counterparty[] | null>(null);
+  const [policies, setPolicies] = useState<PolicyInfo[]>([]);
+  const [policyId, setPolicyId] = useState("");
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState("");
   const [counterpartyId, setCounterpartyId] = useState("");
   const [newCounterparty, setNewCounterparty] = useState(false);
@@ -54,6 +56,11 @@ export default function CreateTransactionPage() {
 
   useEffect(() => {
     void loadCounterparties();
+    // Policy selection is optional: an empty value uses the workspace default.
+    api
+      .get<{ policies: PolicyInfo[] }>("/api/policies")
+      .then((res) => setPolicies(res.policies))
+      .catch(() => setPolicies([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -121,6 +128,7 @@ export default function CreateTransactionPage() {
         amount: Number(amount),
         currency,
         expectedDeliveryDate,
+        ...(policyId ? { policyId } : {}),
         items: payloadItems,
       });
       showToast({ title: "Transaction created" });
@@ -273,6 +281,17 @@ export default function CreateTransactionPage() {
               />
             </Field>
           </div>
+
+          <Field label="Execution policy" htmlFor="policy">
+            <Select id="policy" value={policyId} onChange={(e) => setPolicyId(e.target.value)}>
+              <option value="">Default policy</option>
+              {policies.map((policy) => (
+                <option key={policy.id ?? policy.name} value={policy.id ?? ""}>
+                  {policy.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
 
         {/* Items */}

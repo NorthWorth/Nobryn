@@ -8,8 +8,10 @@ import {
   formatDateTime,
   formatMoney,
   formatDate,
+  formatRelative,
 } from "../lib/types";
 import type {
+  ActivityCategory,
   SimulatedEventOption,
   TransactionDetail,
 } from "../lib/types";
@@ -22,11 +24,23 @@ import {
   ExceptionStatusBadge,
   Input,
   Modal,
+  SeverityBadge,
   Skeleton,
   Textarea,
   TransactionStateBadge,
 } from "../components/ui";
 import { TransactionStateTimeline } from "../components/TransactionStateTimeline";
+
+/** Audit-trail category colors — existing palette tokens only. */
+const CATEGORY_COLOR: Record<ActivityCategory, string> = {
+  CLAIM: "#1D4ED8",
+  VERIFICATION: "#15803D",
+  RECONCILIATION: "#0B1220",
+  "STATE CHANGE": "#64748B",
+  EXCEPTION: "#B91C1C",
+  EXECUTION: "#94A3B8",
+  COMPLETION: "#15803D",
+};
 
 /** Execution step model derived from claims, verified evidence and reconciliation. */
 interface ExecutionStepDetail {
@@ -103,13 +117,19 @@ export default function TransactionDetailPage() {
     if (!tx) return;
     setEventMenuOpen(false);
     try {
+      // Delivery claims default to the expected quantity ("500 delivered").
+      const reportedQuantity =
+        option.reportedQuantity ??
+        (option.type === "DELIVERY_REPORTED" ? expectedQuantityOf(tx) : undefined);
       const res = await api.post<{
         transaction: TransactionDetail;
         duplicate: boolean;
         awaitingVerification: boolean;
+        result: string;
       }>(`/api/transactions/${tx.id}/events`, {
         type: option.type,
         source: option.source,
+        ...(reportedQuantity != null ? { reportedQuantity } : {}),
       });
       const previousState = tx.state;
       setTx(res.transaction);
@@ -205,9 +225,6 @@ export default function TransactionDetailPage() {
   const openException = tx.exceptions.find(
     (x) => x.status === "OPEN" || x.status === "IN_PROGRESS"
   );
-  const mismatchReconciliation = tx.reconciliations
-    .filter((r) => r.result === "MISMATCH")
-    .at(-1);
   const claim = tx.deliveryClaim;
 
   return (
@@ -405,6 +422,42 @@ export default function TransactionDetailPage() {
       <div className="detail-grid">
         {/* Main column */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Expected */}
+          <section className="card card-pad" aria-label="Expected">
+            <h2 className="card-heading">Expected</h2>
+            <p className="text-12 text-muted" style={{ margin: "4px 0 0 0" }}>
+              What this transaction requires before it can complete.
+            </p>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                gap: 16,
+                marginTop: 16,
+              }}
+            >
+              <MetaSmall label="Order" value={`${expectedQuantityOf(tx)} units`} />
+              <MetaSmall
+                label="Delivery confirmation"
+                value={tx.policy.deliveryConfirmationRequired ? "Required" : "Not required"}
+              />
+              <MetaSmall
+                label="Quantity reconciliation"
+                value={
+                  tx.policy.quantityReconciliationRequired
+                    ? `Required · tolerance ${tx.policy.quantityTolerance} units`
+                    : "Not required"
+                }
+              />
+              <MetaSmall
+                label="Confirmation window"
+                value={`${tx.policy.confirmationWindowHours} hours`}
+              />
+              <MetaSmall label="Expected delivery" value={formatDate(tx.expectedDeliveryDate)} />
+              <MetaSmall label="Completion" value={tx.policy.completionCondition} />
+            </div>
+          </section>
+
           {/* Transaction state */}
           <section className="card card-pad" aria-label="Transaction state">
             <h2 className="card-heading">Transaction state</h2>
@@ -421,6 +474,16 @@ export default function TransactionDetailPage() {
               expected.
             </p>
             <ExecutionList tx={tx} onConfirmDelivery={() => setConfirmOpen(true)} />
+          </section>
+
+          {/* Evidence chain */}
+          <section className="card card-pad" aria-label="Evidence chain">
+            <h2 className="card-heading">Evidence chain</h2>
+            <p className="text-12 text-muted" style={{ margin: "4px 0 16px 0" }}>
+              How Nobryn reached the current state: expectation → claim → verification →
+              reconciliation → state → completion.
+            </p>
+            <EvidenceChain tx={tx} />
           </section>
 
           {/* Evidence */}
@@ -539,7 +602,17 @@ export default function TransactionDetailPage() {
                     </div>
                     <div style={{ paddingBottom: 16 }}>
                       <div style={{ fontSize: 14 }}>{a.description}</div>
-                      <div className="text-12 text-subtle">{formatDateTime(a.createdAt)}</div>
+                      <div
+                        className="text-12"
+                        style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}
+                      >
+                        <span style={{ fontWeight: 600, color: CATEGORY_COLOR[a.category] }}>
+                          {a.category}
+                        </span>
+                        <span className="text-subtle">
+                          · {a.actor} · {formatDateTime(a.createdAt)}
+                        </span>
+                      </div>
                     </div>
                   </li>
                 ))}
@@ -600,31 +673,38 @@ export default function TransactionDetailPage() {
                 {tx.exceptions.map((x) => (
                   <li key={x.id} style={{ border: "1px solid #E2E8F0", borderRadius: 6, padding: 16 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <span className="badge badge-warning">
-                        <span className="dot" aria-hidden />
-                        {EXCEPTION_LABELS[x.type]}
+                      <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        <span className="badge badge-warning">
+                          <span className="dot" aria-hidden />
+                          {EXCEPTION_LABELS[x.type]}
+                        </span>
+                        <SeverityBadge severity={x.severity} />
                       </span>
                       <ExceptionStatusBadge status={x.status} />
                     </div>
                     <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                       <ExceptionMeta label="Description" value={x.description} />
-                      {x.type === "QUANTITY_MISMATCH" && mismatchReconciliation ? (
+                      {x.expected != null ? (
                         <>
+                          <ExceptionMeta label="Expected" value={`${x.expected} units`} />
                           <ExceptionMeta
-                            label="Expected"
-                            value={formatUnits(mismatchReconciliation.expected)}
+                            label="Observed"
+                            value={`${x.observed ?? "—"}${x.observed != null ? " units" : ""}`}
                           />
-                          <ExceptionMeta
-                            label="Received"
-                            value={formatUnits(mismatchReconciliation.received)}
-                          />
-                          <ExceptionMeta
-                            label="Difference"
-                            value={formatUnits(mismatchReconciliation.difference)}
-                          />
+                          {x.difference != null ? (
+                            <ExceptionMeta label="Difference" value={`${x.difference} units`} />
+                          ) : null}
                         </>
                       ) : null}
+                      <ExceptionMeta
+                        label="Blocking"
+                        value={x.blocking ? "Yes — completion is blocked" : "No"}
+                      />
+                      <ExceptionMeta label="Owner" value={x.owner ?? "Workspace team"} />
                       <ExceptionMeta label="Detected" value={formatDateTime(x.detectedAt)} />
+                      {x.status !== "RESOLVED" ? (
+                        <ExceptionMeta label="Age" value={formatRelative(x.detectedAt)} />
+                      ) : null}
                       {x.status === "RESOLVED" ? (
                         <>
                           <ExceptionMeta label="Resolved" value={formatDateTime(x.resolvedAt ?? "")} />
@@ -643,6 +723,85 @@ export default function TransactionDetailPage() {
                       >
                         Resolve exception
                       </Button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* External events (provenance) */}
+          <section className="card card-pad" aria-label="External events">
+            <h2 className="card-heading">External events</h2>
+            <p className="text-12 text-muted" style={{ margin: "4px 0 16px 0" }}>
+              Events received from simulated integrations and how Nobryn processed them.
+            </p>
+            {tx.events.length === 0 ? (
+              <EmptyState
+                title="No events"
+                description="External events appear here as simulated integrations report them."
+              />
+            ) : (
+              <ul
+                style={{
+                  listStyle: "none",
+                  margin: 0,
+                  padding: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                {tx.events.map((event) => (
+                  <li
+                    key={event.id}
+                    style={{ border: "1px solid #E2E8F0", borderRadius: 6, padding: "12px 16px" }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                      }}
+                    >
+                      <span
+                        className="mono"
+                        style={{ fontSize: 12, fontWeight: 500, overflowWrap: "anywhere" }}
+                      >
+                        {event.eventId}
+                      </span>
+                      <span
+                        className={`badge ${
+                          event.status === "PROCESSED"
+                            ? "badge-success"
+                            : event.status === "REJECTED"
+                              ? "badge-error"
+                              : "badge-neutral"
+                        }`}
+                      >
+                        <span className="dot" aria-hidden />
+                        {event.status}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                        gap: 8,
+                        marginTop: 8,
+                      }}
+                    >
+                      <MetaSmall label="Source" value={event.source} />
+                      <MetaSmall label="Type" value={event.type} />
+                      <MetaSmall label="Received" value={formatDateTime(event.receivedAt)} />
+                      <MetaSmall label="Result" value={event.result ?? "—"} />
+                    </div>
+                    {event.detail ? (
+                      <div className="text-12 text-muted" style={{ marginTop: 8 }}>
+                        {event.detail}
+                      </div>
                     ) : null}
                   </li>
                 ))}
@@ -725,12 +884,15 @@ function ExecutionList({
           detail: latestReconciliation
             ? [
                 { label: "Expected", value: `${latestReconciliation.expected} units` },
-                { label: "Received", value: `${latestReconciliation.received} units` },
+                { label: "Observed", value: `${latestReconciliation.received} units` },
                 {
                   label: "Result",
                   value: latestReconciliation.approved
                     ? `${latestReconciliation.result} (variance approved)`
-                    : latestReconciliation.result,
+                    : latestReconciliation.withinTolerance &&
+                        latestReconciliation.difference !== 0
+                      ? `${latestReconciliation.result} (within tolerance)`
+                      : latestReconciliation.result,
                   tone: latestReconciliation.result === "MATCH" ? "success" : "error",
                 },
               ]
@@ -744,11 +906,15 @@ function ExecutionList({
             timestamp: claim.receivedAt,
             source: claim.source,
             detail: [
+              { label: "Expected", value: `${expectedQuantityOf(tx)} units` },
               {
-                label: "Claim",
-                value: `The ${claim.source.toLowerCase()} reported that this order was delivered (${claim.reference}).`,
+                label: "Claimed",
+                value:
+                  claim.reportedQuantity != null
+                    ? `${claim.reportedQuantity} units`
+                    : "Not specified",
               },
-              { label: "Action", value: "Confirm what was actually received." },
+              { label: "Verified", value: "—" },
             ],
           }
         : {
@@ -938,6 +1104,251 @@ function StepMarker({ state }: { state: ExecutionStep["state"] }) {
     >
       {state === "done" ? "✓" : state === "blocked" ? "!" : ""}
     </span>
+  );
+}
+
+/**
+ * The provenance chain: how Nobryn reached the current state, from the
+ * original expectation through claim, verification, reconciliation and state
+ * changes to completion.
+ */
+interface ChainNode {
+  key: string;
+  label: string;
+  state: "done" | "awaiting" | "processing" | "blocked" | "pending";
+  badge: { text: string; className: string };
+  rows?: ExecutionStepDetail[];
+  timestamp?: string;
+}
+
+function EvidenceChain({ tx }: { tx: TransactionDetail }) {
+  const expected = expectedQuantityOf(tx);
+  const claimEvidence = tx.evidence.find((e) => e.type === "Delivery reported");
+  const verifiedEvidence = tx.evidence.find((e) => e.type === "Delivery confirmation");
+  const completionEvidence = tx.evidence.find((e) => e.type === "Completion verification");
+  const latestReconciliation = tx.reconciliations.at(-1);
+
+  const claimActivity = claimEvidence
+    ? tx.activity.find((a) => {
+        const m = (a.metadata ?? null) as Record<string, unknown> | null;
+        return a.type === "CLAIM_RECEIVED" && m?.reference === claimEvidence.reference;
+      })
+    : undefined;
+  const reportedRaw = claimActivity?.metadata?.reportedQuantity;
+  const reported = typeof reportedRaw === "number" ? reportedRaw : null;
+  const verifyActivity = tx.activity.find((a) => a.type === "CLAIM_VERIFIED");
+  const stateChanges = tx.activity
+    .filter((a) => a.type === "STATE_CHANGED")
+    .slice()
+    .reverse()
+    .map((a) => {
+      const m = (a.metadata ?? null) as Record<string, unknown> | null;
+      return {
+        from: m && typeof m.from === "string" ? m.from : "",
+        to: m && typeof m.to === "string" ? m.to : "",
+      };
+    })
+    .filter((s) => s.from && s.to);
+
+  const nodes: ChainNode[] = [
+    {
+      key: "expectation",
+      label: "Transaction expectation",
+      state: "done",
+      badge: { text: "Expected", className: "badge badge-neutral" },
+      rows: [
+        { label: "Order", value: `${expected} units` },
+        {
+          label: "Delivery",
+          value: tx.policy.deliveryConfirmationRequired
+            ? "Confirmation required"
+            : "Confirmation not required",
+        },
+      ],
+      timestamp: tx.createdAt,
+    },
+    claimEvidence
+      ? {
+          key: "claim",
+          label: "Delivery claim",
+          state: "done",
+          badge: { text: "Unverified", className: "badge badge-warning" },
+          rows: [
+            { label: "Source", value: claimEvidence.source },
+            {
+              label: "Claim",
+              value: reported != null ? `${reported} units delivered` : "Order delivered",
+            },
+            { label: "Reference", value: claimEvidence.reference },
+          ],
+          timestamp: claimEvidence.receivedAt,
+        }
+      : {
+          key: "claim",
+          label: "Delivery claim",
+          state: "pending",
+          badge: { text: "Waiting", className: "badge badge-neutral" },
+        },
+    verifiedEvidence
+      ? {
+          key: "verification",
+          label: "Delivery verification",
+          state: "done",
+          badge: { text: "Verified", className: "badge badge-success" },
+          rows: [
+            { label: "Confirmed by", value: verifyActivity?.actor ?? "Human confirmation" },
+            {
+              label: "Observed",
+              value: latestReconciliation ? `${latestReconciliation.received} units` : "—",
+            },
+            { label: "Method", value: "Human confirmation" },
+          ],
+          timestamp: verifiedEvidence.receivedAt,
+        }
+      : claimEvidence
+        ? {
+            key: "verification",
+            label: "Delivery verification",
+            state: "awaiting",
+            badge: { text: "Awaiting verification", className: "badge badge-warning" },
+            rows: [{ label: "Observed", value: "—" }],
+          }
+        : {
+            key: "verification",
+            label: "Delivery verification",
+            state: "pending",
+            badge: { text: "Waiting", className: "badge badge-neutral" },
+          },
+    latestReconciliation
+      ? {
+          key: "reconciliation",
+          label: "Reconciliation",
+          state: latestReconciliation.result === "MATCH" ? "done" : "blocked",
+          badge: {
+            text: `${latestReconciliation.result}${
+              latestReconciliation.approved
+                ? " (approved)"
+                : latestReconciliation.withinTolerance && latestReconciliation.difference !== 0
+                  ? " (within tolerance)"
+                  : ""
+            }`,
+            className:
+              latestReconciliation.result === "MATCH"
+                ? "badge badge-success"
+                : "badge badge-error",
+          },
+          rows: [
+            { label: "Expected", value: `${latestReconciliation.expected} units` },
+            { label: "Observed", value: `${latestReconciliation.received} units` },
+            { label: "Difference", value: `${latestReconciliation.difference} units` },
+          ],
+          timestamp: latestReconciliation.at,
+        }
+      : {
+          key: "reconciliation",
+          label: "Reconciliation",
+          state: "pending",
+          badge: { text: "Waiting", className: "badge badge-neutral" },
+        },
+    stateChanges.length > 0
+      ? {
+          key: "state",
+          label: "State change",
+          state: "done",
+          badge: { text: "Recorded", className: "badge badge-info" },
+          rows: stateChanges.map((s) => ({ label: "State", value: `${s.from} → ${s.to}` })),
+        }
+      : {
+          key: "state",
+          label: "State change",
+          state: "pending",
+          badge: { text: "Waiting", className: "badge badge-neutral" },
+        },
+    completionEvidence
+      ? {
+          key: "completion",
+          label: "Completion evaluation",
+          state: "done",
+          badge: { text: "Satisfied", className: "badge badge-success" },
+          rows: [
+            { label: "Result", value: "All required conditions satisfied", tone: "success" },
+          ],
+          timestamp: completionEvidence.receivedAt,
+        }
+      : tx.completionBlocking.length > 0
+        ? {
+            key: "completion",
+            label: "Completion evaluation",
+            state: "blocked",
+            badge: { text: "Blocked", className: "badge badge-error" },
+            rows: tx.completionBlocking.map((reason) => ({
+              label: "Blocked",
+              value: reason,
+              tone: "error" as const,
+            })),
+          }
+        : {
+            key: "completion",
+            label: "Completion evaluation",
+            state: "pending",
+            badge: { text: "Waiting", className: "badge badge-neutral" },
+          },
+  ];
+
+  return (
+    <ol style={{ listStyle: "none", margin: 0, padding: 0 }}>
+      {nodes.map((node, idx) => (
+        <li key={node.key} style={{ display: "flex", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "none" }}>
+            <StepMarker state={node.state} />
+            {idx < nodes.length - 1 ? (
+              <span aria-hidden style={{ width: 1, flex: 1, background: "#E2E8F0", minHeight: 24 }} />
+            ) : null}
+          </div>
+          <div style={{ paddingBottom: 16, flex: 1 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 14 }}>{node.label}</span>
+              <span className={node.badge.className}>
+                <span className="dot" aria-hidden />
+                {node.badge.text}
+              </span>
+            </div>
+            {node.timestamp ? (
+              <div className="text-12 text-subtle" style={{ marginTop: 2 }}>
+                {formatDateTime(node.timestamp)}
+              </div>
+            ) : null}
+            {node.rows ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6 }}>
+                {node.rows.map((row, rowIdx) => (
+                  <div key={`${row.label}-${rowIdx}`} style={{ display: "flex", gap: 8 }}>
+                    <span className="text-12 text-muted" style={{ width: 96, flex: "none" }}>
+                      {row.label}
+                    </span>
+                    <span
+                      className="text-12"
+                      style={{
+                        color:
+                          row.tone === "error"
+                            ? "#B91C1C"
+                            : row.tone === "success"
+                              ? "#15803D"
+                              : "#475569",
+                        fontWeight: row.tone ? 500 : 400,
+                        minWidth: 0,
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {row.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }
 

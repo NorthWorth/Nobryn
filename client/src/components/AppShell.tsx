@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import { api } from "../lib/api";
 
 const NAV_ITEMS = [
   { to: "/app/overview", label: "Overview", icon: NavIconGrid },
@@ -14,8 +15,10 @@ const NAV_ITEMS = [
 export function AppShell() {
   const { user, workspace, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [wsOpen, setWsOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const wsRef = useRef<HTMLDivElement>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
@@ -30,6 +33,22 @@ export function AppShell() {
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
+
+  // Unread notification indicator, refreshed as the user moves around.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ unreadCount: number }>("/api/notifications/unread-count")
+      .then((r) => {
+        if (!cancelled) setUnreadNotifications(r.unreadCount);
+      })
+      .catch(() => {
+        // Indicator stays as-is; notifications never break the shell.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname]);
 
   // Mobile drawer: Escape closes, focus moves in on open and returns to the
   // trigger on close, and the background does not scroll behind the overlay.
@@ -87,10 +106,13 @@ export function AppShell() {
     <div className="app-layout">
       {/* Desktop sidebar */}
       <aside className="sidebar">
-        <div className="sidebar-brand">
-          <Link to="/app/overview" className="brand-word">
-            Nobryn
-          </Link>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <div className="sidebar-brand">
+            <Link to="/app/overview" className="brand-word">
+              Nobryn
+            </Link>
+          </div>
+          <NotificationsBell unread={unreadNotifications} />
         </div>
         <div className="workspace-selector" ref={wsRef}>
           <button
@@ -131,18 +153,21 @@ export function AppShell() {
         <Link to="/app/overview" className="brand-word" style={{ fontSize: 16 }}>
           Nobryn
         </Link>
-        <button
-          type="button"
-          ref={menuBtnRef}
-          className="menu-btn"
-          aria-label="Open navigation menu"
-          aria-expanded={drawerOpen}
-          onClick={() => setDrawerOpen(true)}
-        >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-            <path d="M3 5h14M3 10h14M3 15h14" stroke="#0B1220" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <NotificationsBell unread={unreadNotifications} />
+          <button
+            type="button"
+            ref={menuBtnRef}
+            className="menu-btn"
+            aria-label="Open navigation menu"
+            aria-expanded={drawerOpen}
+            onClick={() => setDrawerOpen(true)}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+              <path d="M3 5h14M3 10h14M3 15h14" stroke="#0B1220" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Mobile drawer */}
@@ -181,6 +206,46 @@ export function AppShell() {
         <Outlet />
       </main>
     </div>
+  );
+}
+
+/**
+ * Subtle unread indicator: a small bell linking to the notifications list.
+ */
+function NotificationsBell({ unread }: { unread: number }) {
+  return (
+    <Link
+      to="/app/notifications"
+      className="menu-btn"
+      aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
+      style={{ position: "relative" }}
+    >
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
+        <path
+          d="M9 2.5c-2.2 0-4 1.8-4 4 0 3-1.25 4.25-1.25 4.25h10.5C13.25 10.75 12 9.5 12 6.5c0-2.2-1.8-4-3-4z"
+          stroke="#0B1220"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path d="M7.75 13.25a1.25 1.25 0 002.5 0" stroke="#0B1220" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+      {unread > 0 ? (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: 5,
+            right: 5,
+            width: 7,
+            height: 7,
+            borderRadius: 9999,
+            background: "#B91C1C",
+            border: "1px solid #FFFFFF",
+          }}
+        />
+      ) : null}
+    </Link>
   );
 }
 

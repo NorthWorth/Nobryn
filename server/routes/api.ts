@@ -7,6 +7,7 @@ import {
   counterpartySchema,
   createTransactionSchema,
   ingestEventSchema,
+  policySchema,
   resolveExceptionSchema,
   TransactionState as TxState,
   updateAccountSchema,
@@ -23,6 +24,19 @@ import {
   serializeTransaction,
   verifyDelivery,
 } from "../services/transactions.js";
+import {
+  createPolicy,
+  listPolicies,
+  updatePolicy,
+} from "../services/policies.js";
+import {
+  listNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  unreadNotificationCount,
+} from "../services/notifications.js";
+import { deriveActionRequired } from "../services/actionRequired.js";
+import { simulatorAdapter } from "../integrations/simulator.js";
 
 export const apiRouter = Router();
 
@@ -218,26 +232,53 @@ workspaceRouter.get(
   asyncHandler(async (req, res) => {
     const { workspaceId } = ctx(req);
     const tx = await getTransactionForDisplay(workspaceId, param(req, "id"));
-    res.json({ transaction: serializeTransaction(tx) });
+    // Event provenance for this transaction (observable event handling).
+    const events = await prisma.integrationEvent.findMany({
+      where: { workspaceId, transactionId: tx.id },
+      orderBy: { receivedAt: "desc" },
+      take: 30,
+    });
+    res.json({
+      transaction: {
+        ...serializeTransaction(tx),
+        events: events.map((e) => ({
+          id: e.id,
+          eventId: e.eventId,
+          source: e.source,
+          type: e.type,
+          receivedAt: e.receivedAt.toISOString(),
+          processedAt: e.processedAt?.toISOString() ?? null,
+          status: e.status,
+          result: e.result,
+          detail: e.detail,
+        })),
+      },
+    });
   })
 );
 
 /**
- * Event ingestion: simulated integrations publish events/claims here. This is
- * the same pipeline a future real integration would use — normalize, validate,
- * determine verification requirement, record the claim, and let the execution
- * engine decide what happens to the transaction state.
+ * Event ingestion: adapters (today the simulator, real systems later) publish
+ * events/claims here. The adapter normalizes the payload; the domain then
+ * validates, records the claim, verifies where required, reconciles and
+ * updates state — the pipeline every future integration will use.
  */
 workspaceRouter.post(
   "/transactions/:id/events",
   asyncHandler(async (req, res) => {
     const { workspaceId } = ctx(req);
     const input = parseWith(ingestEventSchema, req.body);
-    const result = await ingestExternalEvent(workspaceId, param(req, "id"), input);
+    const result = await ingestExternalEvent(
+      workspaceId,
+      param(req, "id"),
+      input,
+      simulatorAdapter
+    );
     res.status(result.duplicate ? 200 : 201).json({
       transaction: serializeTransaction(result.transaction),
       duplicate: result.duplicate,
       awaitingVerification: result.awaitingVerification,
+      result: result.result,
     });
   })
 );
@@ -268,6 +309,82 @@ workspaceRouter.get(
 
 // ---------------------------------------------------------------------------
 // Exceptions — created by the execution engine, resolved by humans
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Transaction policies (validated server-side, persisted per workspace)
+// ---------------------------------------------------------------------------
+
+workspaceRouter.get(
+  "/policies",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    res.json({ policies: await listPolicies(workspaceId) });
+  })
+);
+
+workspaceRouter.post(
+  "/policies",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const input = parseWith(policySchema, req.body);
+    res.status(201).json({ policy: await createPolicy(workspaceId, input) });
+  })
+);
+
+workspaceRouter.patch(
+  "/policies/:id",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const input = parseWith(policySchema, req.body);
+    res.json({ policy: await updatePolicy(workspaceId, param(req, "id"), input) });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Notifications (generated from domain events)
+// ---------------------------------------------------------------------------
+
+workspaceRouter.get(
+  "/notifications",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const { unread } = req.query as { unread?: string };
+    res.json({
+      notifications: await listNotifications(workspaceId, {
+        unreadOnly: unread === "1" || unread === "true",
+      }),
+      unreadCount: await unreadNotificationCount(workspaceId),
+    });
+  })
+);
+
+workspaceRouter.get(
+  "/notifications/unread-count",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    res.json({ unreadCount: await unreadNotificationCount(workspaceId) });
+  })
+);
+
+workspaceRouter.post(
+  "/notifications/read-all",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    res.json(await markAllNotificationsRead(workspaceId));
+  })
+);
+
+workspaceRouter.post(
+  "/notifications/:id/read",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    res.json({ notification: await markNotificationRead(workspaceId, param(req, "id")) });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Exceptions
 // ---------------------------------------------------------------------------
 
 workspaceRouter.get(
@@ -344,8 +461,7 @@ workspaceRouter.get(
         currency: t.currency,
         state: t.state,
         updatedAt: t.updatedAt.toISOString(),
-      })),
-      openExceptions: openList.map((x) => ({
+      })),        openExceptions: openList.map((x) => ({
         id: x.id,
         transactionId: x.transaction.id,
         purchaseOrderNumber: x.transaction.purchaseOrderNumber,
@@ -354,6 +470,7 @@ workspaceRouter.get(
         detectedAt: x.detectedAt.toISOString(),
         nextAction: x.nextAction,
       })),
+      actionRequired: await deriveActionRequired(workspaceId),
     });
   })
 );

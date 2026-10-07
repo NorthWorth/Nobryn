@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
-import { formatDateTime, EXCEPTION_LABELS } from "../lib/types";
+import { formatDateTime, formatRelative, EXCEPTION_LABELS } from "../lib/types";
 import type { ExceptionListRow } from "../lib/types";
 import {
   EmptyState,
   ErrorState,
   ExceptionStatusBadge,
   Select,
+  SeverityBadge,
   TableSkeleton,
 } from "../components/ui";
 
@@ -78,7 +79,7 @@ export default function ExceptionsPage() {
           />
         </div>
       ) : rows === null ? (
-        <TableSkeleton rows={6} cols={5} />
+        <TableSkeleton rows={6} cols={7} />
       ) : rows.length === 0 ? (
         <div className="card">
           <EmptyState
@@ -89,14 +90,15 @@ export default function ExceptionsPage() {
       ) : (
         <div className="table-wrap">
           <table className="nbt">
-            <thead>
-              <tr>
-                <th>Exception</th>
-                <th>Transaction</th>
-                <th>Detected</th>
-                <th>Status</th>
-                <th>Next action</th>
-              </tr>
+            <thead>                <tr>
+                  <th>Exception</th>
+                  <th>Transaction</th>
+                  <th>Severity</th>
+                  <th>Blocking</th>
+                  <th>Detected</th>
+                  <th>Status</th>
+                  <th>Next action</th>
+                </tr>
             </thead>
             <tbody>
               {rows.map((x) => (
@@ -112,7 +114,16 @@ export default function ExceptionsPage() {
                 >
                   <td style={{ fontWeight: 500 }}>{EXCEPTION_LABELS[x.type]}</td>
                   <td>{x.purchaseOrderNumber}</td>
-                  <td className="text-12 text-muted">{formatDateTime(x.detectedAt)}</td>
+                  <td>
+                    <SeverityBadge severity={x.severity} />
+                  </td>
+                  <td className="text-12 text-muted">
+                    {x.blocking ? "Blocking" : "Non-blocking"}
+                  </td>
+                  <td className="text-12 text-muted">
+                    {formatDateTime(x.detectedAt)}
+                    <div className="secondary">{formatRelative(x.detectedAt)}</div>
+                  </td>
                   <td>
                     <ExceptionStatusBadge status={x.status} />
                   </td>

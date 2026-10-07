@@ -9,6 +9,19 @@ export type ExceptionType = "SUPPLIER_TIMEOUT" | "DELIVERY_DELAY" | "QUANTITY_MI
 
 export type ExceptionStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";
 
+export type Severity = "LOW" | "MEDIUM" | "HIGH";
+
+export type NotificationSeverity = "INFO" | "WARNING" | "ERROR";
+
+export type ActivityCategory =
+  | "CLAIM"
+  | "VERIFICATION"
+  | "RECONCILIATION"
+  | "STATE CHANGE"
+  | "EXCEPTION"
+  | "EXECUTION"
+  | "COMPLETION";
+
 export const STATE_ORDER: TransactionState[] = [
   "CREATED",
   "ACCEPTED",
@@ -50,6 +63,8 @@ export interface SimulatedEventOption {
   type: ExternalEventType;
   label: string;
   source: string;
+  /** Preset claim quantity, where the simulated source reports one. */
+  reportedQuantity?: number;
 }
 
 /**
@@ -74,6 +89,8 @@ export const EVENT_SOURCE_GROUPS: {
     source: "Warehouse system",
     events: [
       { type: "DELIVERY_REPORTED", label: "Delivery reported (goods received)", source: "Warehouse system" },
+      { type: "DELIVERY_REPORTED", label: "Report 500 units received", source: "Warehouse system", reportedQuantity: 500 },
+      { type: "DELIVERY_REPORTED", label: "Report 470 units received (quantity mismatch)", source: "Warehouse system", reportedQuantity: 470 },
     ],
   },
   {
@@ -103,6 +120,8 @@ export interface Reconciliation {
   difference: number;
   result: "MATCH" | "MISMATCH";
   approved: boolean;
+  tolerance?: number;
+  withinTolerance?: boolean;
   at: string;
 }
 
@@ -162,11 +181,71 @@ export interface EvidenceItem {
   notes?: string | null;
 }
 
+/** Transaction policy values that drive domain behavior. */
+export interface PolicyInfo {
+  id?: string;
+  name: string;
+  deliveryConfirmationRequired: boolean;
+  quantityReconciliationRequired: boolean;
+  quantityTolerance: number;
+  confirmationWindowHours: number;
+  blockingMismatches: boolean;
+  completionCondition: string;
+}
+
+/** An operational notification generated from a domain event. */
+export interface NotificationItem {
+  id: string;
+  type: string;
+  severity: NotificationSeverity;
+  title: string;
+  description: string;
+  targetPath: string;
+  transactionId: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+/** A derived item that needs human attention right now. */
+export interface ActionRequiredItem {
+  id: string;
+  kind: "VERIFICATION" | "EXCEPTION" | "EVENT";
+  severity: Severity;
+  transactionId: string | null;
+  purchaseOrderNumber: string;
+  title: string;
+  description: string;
+  why: string;
+  status: string;
+  nextAction: string;
+  targetPath: string;
+  detectedAt: string;
+}
+
+/** Provenance of an incoming external event. */
+export interface IntegrationEventItem {
+  id: string;
+  eventId: string;
+  source: string;
+  type: string;
+  receivedAt: string;
+  processedAt: string | null;
+  status: "PROCESSED" | "DUPLICATE" | "REJECTED";
+  result: string | null;
+  detail: string | null;
+}
+
 export interface ExceptionItem {
   id: string;
   type: ExceptionType;
   status: ExceptionStatus;
+  severity: Severity;
+  blocking: boolean;
+  owner?: string | null;
   description: string;
+  expected?: number | null;
+  observed?: number | null;
+  difference?: number | null;
   detectedAt: string;
   nextAction?: string | null;
   resolutionNote?: string | null;
@@ -177,7 +256,10 @@ export interface ExceptionItem {
 export interface ActivityEventItem {
   id: string;
   type: string;
+  category: ActivityCategory;
+  actor: string;
   description: string;
+  metadata?: Record<string, unknown> | null;
   createdAt: string;
 }
 
@@ -200,6 +282,8 @@ export interface TransactionDetail {
   reconciliations: Reconciliation[];
   deliveryClaim: DeliveryClaim | null;
   completionBlocking: string[];
+  policy: PolicyInfo;
+  events: IntegrationEventItem[];
 }
 
 export interface Counterparty {
@@ -218,7 +302,13 @@ export interface ExceptionListRow {
   purchaseOrderNumber: string;
   type: ExceptionType;
   status: ExceptionStatus;
+  severity: Severity;
+  blocking: boolean;
+  owner?: string | null;
   description: string;
+  expected?: number | null;
+  observed?: number | null;
+  difference?: number | null;
   detectedAt: string;
   nextAction?: string | null;
   resolutionNote?: string | null;
@@ -251,6 +341,7 @@ export interface Summary {
     detectedAt: string;
     nextAction?: string | null;
   }[];
+  actionRequired: ActionRequiredItem[];
 }
 
 // ---------------------------------------------------------------------------
