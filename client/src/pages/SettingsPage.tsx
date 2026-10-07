@@ -581,6 +581,47 @@ function SystemHealth() {
           >
             <div>
               <div className="text-12 text-muted" style={{ fontWeight: 500, marginBottom: 6 }}>
+                Recent request latency
+              </div>
+              {data.recentRequests.length === 0 ? (
+                <p className="text-12 text-muted" style={{ margin: 0 }}>
+                  No API request has been recorded in this instance yet.
+                </p>
+              ) : (
+                <ul
+                  style={{
+                    listStyle: "none",
+                    margin: 0,
+                    padding: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                  }}
+                >
+                  {data.recentRequests.slice(0, 5).map((op, idx) => (
+                    <li
+                      key={`${op.method}-${op.path}-${idx}`}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        fontSize: 12,
+                      }}
+                    >
+                      <span className="mono" style={{ overflowWrap: "anywhere" }}>
+                        {op.method} {op.path} · {op.status}
+                      </span>
+                      <span className="mono" style={{ flex: "none", color: "var(--muted)" }}>
+                        {op.totalMs}ms
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <div className="text-12 text-muted" style={{ fontWeight: 500, marginBottom: 6 }}>
                 Slow operations
               </div>
               {data.slowOperations.length === 0 ? (
@@ -624,6 +665,7 @@ function SystemHealth() {
               <div className="text-12 text-muted" style={{ fontWeight: 500, marginBottom: 6 }}>
                 Recent failures
               </div>
+              {/* errors: rendered as their own list so failures stay visible */}
               {data.recentFailures.length === 0 ? (
                 <p className="text-12 text-muted" style={{ margin: 0 }}>
                   No failed requests in the current window.
