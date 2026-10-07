@@ -316,6 +316,19 @@ export interface ExceptionListRow {
   resolvedBy?: string | null;
 }
 
+/**
+ * Page-level Overview payload (`GET /api/overview`): everything the Overview
+ * route renders in one response, so the page makes a single request.
+ */
+export interface OverviewData extends Summary {
+  recentActivity: {
+    id: string;
+    purchaseOrderNumber: string;
+    state: TransactionState;
+    updatedAt: string;
+  }[];
+}
+
 export interface Summary {
   cards: {
     activeTransactions: number;
@@ -383,4 +396,79 @@ export function formatRelative(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+// ---------------------------------------------------------------------------
+// Observability (`GET /api/observability`)
+// ---------------------------------------------------------------------------
+
+export interface ObservabilityRequestSample {
+  method: string;
+  path: string;
+  status: number;
+  totalMs: number;
+  dbMs: number;
+  dbQueries: number;
+  at: string;
+}
+
+export interface ObservabilityDbOperation {
+  model: string;
+  operation: string;
+  ms: number;
+  at: string;
+}
+
+export interface ObservabilitySnapshot {
+  service: string;
+  version: string;
+  build: string | null;
+  timestamp: string;
+  uptimeSeconds: number;
+  api: {
+    status: "ok" | "degraded";
+    requests: number;
+    errors: number;
+    errorRatePercent: number;
+    requestsInWindow: number;
+    lastRequestAt: string | null;
+  };
+  database: {
+    status: "ok" | "error" | "timeout" | "unknown";
+    latencyMs: number | null;
+    lastCheckedAt: string | null;
+    error?: string;
+  };
+  latency: {
+    windowSamples: number;
+    p50Ms: number;
+    p95Ms: number;
+    maxMs: number;
+    avgMs: number;
+    avgDbMs: number;
+    avgDbQueries: number;
+  };
+  routes: {
+    path: string;
+    count: number;
+    errors: number;
+    totalMs: number;
+    maxMs: number;
+    dbMs: number;
+  }[];
+  slowOperations: ObservabilityRequestSample[];
+  recentRequests: ObservabilityRequestSample[];
+  recentFailures: ObservabilityRequestSample[];
+  databaseOperations: {
+    slow: ObservabilityDbOperation[];
+    recent: ObservabilityDbOperation[];
+  };
+  health: {
+    status: "ok" | "degraded";
+    service: string;
+    version: string;
+    build: string | null;
+    uptime: number;
+    timestamp: string;
+  };
 }

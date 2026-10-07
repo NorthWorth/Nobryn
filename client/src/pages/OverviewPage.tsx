@@ -1,10 +1,12 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useEffect } from "react";
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
+import { onIdle, prefetch, useQuery } from "../lib/query";
 import { formatMoney, formatRelative, formatDateTime, STATE_LABELS } from "../lib/types";
-import type { Summary, TransactionState } from "../lib/types";
+import type { OverviewData, TransactionListItem, TransactionState } from "../lib/types";
 import {
+  CardSkeleton,
   EmptyState,
   ErrorState,
   ExceptionStatusBadge,
@@ -17,26 +19,23 @@ import {
 
 export default function OverviewPage() {
   const navigate = useNavigate();
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const summaryData = await api.get<Summary>("/api/summary");
-      setSummary(summaryData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // One page-level request for every Overview section. The shell (header,
+  // section headings, card/table structure) renders immediately; each section
+  // shows its own skeleton until the response lands.
+  const { data: summary, error, loading, refetch } = useQuery<OverviewData>(
+    "/api/overview",
+    () => api.get<OverviewData>("/api/overview")
+  );
 
+  // Targeted prefetch: once Overview has data, warm the Transactions list in
+  // the background while the browser is idle. It never blocks this page.
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!summary) return undefined;
+    return onIdle(() => {
+      prefetch("/api/transactions", () => api.get<TransactionListItem[]>("/api/transactions"));
+    });
+  }, [summary]);
 
   return (
     <div className="content-max">
@@ -50,26 +49,28 @@ export default function OverviewPage() {
         </Link>
       </div>
 
-      {error ? (
+      {error && !summary ? (
         <div className="card">
           <ErrorState
             title="Unable to load overview"
-            message="We couldn't retrieve your workspace data from the transaction service."
-            onRetry={() => void load()}
+            message={
+              error instanceof Error
+                ? error.message
+                : "We couldn't retrieve your workspace data from the transaction service."
+            }
+            onRetry={refetch}
           />
         </div>
-      ) : loading ? (
+      ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-          <SummarySkeleton />
-          <TableSkeleton rows={5} cols={5} />
-        </div>
-      ) : summary ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-          {/* Metric composition: one primary metric, three supporting metrics */}
-          <MetricSection summary={summary} />
+          {/* Metric composition: one primary metric, three supporting metrics.
+              Skeleton first, so the page never waits on data to show shape. */}
+          {summary ? <MetricSection summary={summary} /> : <SummarySkeleton />}
 
-          {/* Action required — things that need human attention now */}
-          {summary.actionRequired.length > 0 ? (
+          {/* Action required — things that need human attention now. This
+              section only exists when there is work to do, so it appears as
+              soon as the response arrives rather than showing an empty shell. */}
+          {summary && summary.actionRequired.length > 0 ? (
             <section aria-label="Action required">
               <div
                 style={{
@@ -179,7 +180,9 @@ export default function OverviewPage() {
                   View all
                 </Link>
               </div>
-              {summary.recentTransactions.length === 0 ? (
+              {loading ? (
+                <TableSkeleton rows={3} cols={5} />
+              ) : !summary || summary.recentTransactions.length === 0 ? (
                 <div className="card">
                   <EmptyState
                     title="No transactions"
@@ -237,7 +240,9 @@ export default function OverviewPage() {
                   View all
                 </Link>
               </div>
-              {summary.openExceptions.length === 0 ? (
+              {loading ? (
+                <CardSkeleton lines={3} />
+              ) : !summary || summary.openExceptions.length === 0 ? (
                 <div className="card">
                   <EmptyState
                     title="No open exceptions"
@@ -279,10 +284,10 @@ export default function OverviewPage() {
             <h2 className="section-heading" style={{ marginBottom: 16 }}>
               Transaction activity
             </h2>
-            <ActivityList />
+            <ActivityList rows={summary ? summary.recentActivity : null} />
           </section>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -305,7 +310,7 @@ function exceptionLabel(type: string): string {
  * Exceptions, Completed and Counterparties are compact supporting metrics.
  * All counts come straight from the summary response — nothing is hardcoded.
  */
-function MetricSection({ summary }: { summary: Summary }) {
+function MetricSection({ summary }: { summary: OverviewData }) {
   const activeCount = summary.cards.activeTransactions;
 
   // The active transactions visible in the recent list (the summary endpoint
@@ -417,58 +422,22 @@ function MetricCard({ label, value, support }: { label: string; value: number; s
 
 /**
  * Activity feed built from the workspace's most recently updated transactions.
+ * Rows arrive with the page-level Overview response, so this makes no request
+ * of its own; `null` means "still loading" and keeps the card's dimensions.
  */
-function ActivityList() {
-  const [rows, setRows] = useState<
-    { id: string; description: string; createdAt: string; po: string; txId: string; state: TransactionState }[] | null
-  >(null);
-  const [failed, setFailed] = useState(false);
+function ActivityList({ rows }: { rows: OverviewData["recentActivity"] | null }) {
+  const items = rows
+    ? rows.map((row) => ({
+        id: row.id,
+        txId: row.id,
+        po: row.purchaseOrderNumber,
+        createdAt: row.updatedAt,
+        description: `Transaction ${row.state === "COMPLETED" ? "completed" : "updated"}`,
+        state: row.state,
+      }))
+    : null;
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadActivity() {
-      try {
-        const transactions = await api.get<
-          {
-            id: string;
-            purchaseOrderNumber: string;
-            updatedAt: string;
-            state: TransactionState;
-            description: string;
-          }[]
-        >("/api/transactions");
-        const base: typeof rows = transactions.slice(0, 8).map((t) => ({
-          id: t.id,
-          description: `Transaction ${t.state === "COMPLETED" ? "completed" : "updated"}`,
-          createdAt: t.updatedAt,
-          po: t.purchaseOrderNumber,
-          txId: t.id,
-          state: t.state,
-        }));
-        if (!cancelled) setRows(base);
-      } catch {
-        if (!cancelled) setFailed(true);
-      }
-    }
-    void loadActivity();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (failed) {
-    return (
-      <div className="card">
-        <ErrorState
-          title="Unable to load activity"
-          message="We couldn't retrieve recent transaction activity."
-          onRetry={() => window.location.reload()}
-        />
-      </div>
-    );
-  }
-
-  if (!rows) {
+  if (!items) {
     return (
       <div className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {Array.from({ length: 5 }).map((_, i) => (
@@ -478,7 +447,7 @@ function ActivityList() {
     );
   }
 
-  if (rows.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="card">
         <EmptyState
@@ -492,7 +461,7 @@ function ActivityList() {
   return (
     <div className="card">
       <ul style={{ listStyle: "none", margin: 0, padding: "8px 0" }}>
-        {rows.map((row, idx) => (
+        {items.map((row, idx) => (
           <li
             key={`${row.id}-${idx}`}
             style={{

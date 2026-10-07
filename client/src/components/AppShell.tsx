@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { api } from "../lib/api";
+import { useQuery } from "../lib/query";
 
 const NAV_ITEMS = [
   { to: "/app/overview", label: "Overview", icon: NavIconGrid },
@@ -18,7 +19,6 @@ export function AppShell() {
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [wsOpen, setWsOpen] = useState(false);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const wsRef = useRef<HTMLDivElement>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
@@ -34,21 +34,18 @@ export function AppShell() {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  // Unread notification indicator, refreshed as the user moves around.
+  // Unread notification indicator: cached like every other read, refreshed as
+  // the user moves around, and invalidated the moment a notification is read
+  // (invalidate("/api/notifications") covers this key too).
+  const { data: unreadData, refetch: refetchUnread } = useQuery<{ unreadCount: number }>(
+    "/api/notifications/unread-count",
+    () => api.get<{ unreadCount: number }>("/api/notifications/unread-count")
+  );
+  const unreadNotifications = unreadData?.unreadCount ?? 0;
+
   useEffect(() => {
-    let cancelled = false;
-    api
-      .get<{ unreadCount: number }>("/api/notifications/unread-count")
-      .then((r) => {
-        if (!cancelled) setUnreadNotifications(r.unreadCount);
-      })
-      .catch(() => {
-        // Indicator stays as-is; notifications never break the shell.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [location.pathname]);
+    refetchUnread();
+  }, [location.pathname, refetchUnread]);
 
   // Mobile drawer: Escape closes, focus moves in on open and returns to the
   // trigger on close, and the background does not scroll behind the overlay.

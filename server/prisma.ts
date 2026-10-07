@@ -2,6 +2,8 @@ import "./env.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { X509Certificate } from "node:crypto";
+import { recordDbOperation as recordRequestDbTime } from "./observability/context.js";
+import { recordDbOperation as recordDbSample } from "./observability/metrics.js";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
@@ -106,7 +108,43 @@ function createClient(): PrismaClient {
       rejectUnauthorized: true,
     },
   });
-  return new PrismaClient({ adapter });
+  const client = new PrismaClient({ adapter });
+
+  /**
+   * Per-operation database timing for the request instrumentation.
+   *
+   * Every Prisma operation (including raw queries) reports how long it took;
+   * the duration is attributed to the request that is currently being handled
+   * through AsyncLocalStorage, which is what lets the API log show
+   * `total=... db=...` for each route. There is no store outside a request
+   * (scripts, seeds, tests) and those durations are simply not attributed.
+   *
+   * The extended client is cast back to PrismaClient: no API surface changes,
+   * only this timing hook.
+   */
+  return client.$extends({
+    query: {
+      $allOperations({ model, operation, args, query }) {
+        const started = performance.now();
+        const result = query(args);
+        const record = () => {
+          const ms = performance.now() - started;
+          // Attribute the duration to the request currently being handled
+          // (no-op outside a request) and keep a sample for the dashboard's
+          // slow-operation list.
+          recordRequestDbTime(ms);
+          recordDbSample({
+            model: model ?? "raw",
+            operation,
+            ms: Math.round(ms),
+            at: new Date().toISOString(),
+          });
+        };
+        result.then(record, record);
+        return result;
+      },
+    },
+  }) as unknown as PrismaClient;
 }
 
 export const prisma = globalForPrisma.prisma ?? createClient();

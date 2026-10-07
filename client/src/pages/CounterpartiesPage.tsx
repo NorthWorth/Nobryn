@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { api, ApiClientError } from "../lib/api";
+import { invalidate, useQuery } from "../lib/query";
 import { formatDate } from "../lib/types";
 import type { Counterparty } from "../lib/types";
 import { useToast } from "../lib/toast";
@@ -15,23 +16,15 @@ import {
 
 export default function CounterpartiesPage() {
   const { showToast } = useToast();
-  const [rows, setRows] = useState<Counterparty[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const data = await api.get<Counterparty[]>("/api/counterparties");
-      setRows(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Secondary data: cached briefly and revalidated in the background, so the
+  // list is on screen immediately on repeat visits.
+  const { data: rows, error, refetch } = useQuery<Counterparty[]>(
+    "/api/counterparties",
+    () => api.get<Counterparty[]>("/api/counterparties"),
+    { staleTime: 60_000 }
+  );
 
   return (
     <div className="content-max" style={{ maxWidth: "none" }}>
@@ -43,15 +36,15 @@ export default function CounterpartiesPage() {
         <Button onClick={() => setModalOpen(true)}>Add counterparty</Button>
       </div>
 
-      {error ? (
+      {error && !rows ? (
         <div className="card">
           <ErrorState
             title="Unable to load counterparties"
             message="We couldn't retrieve counterparties from the transaction service."
-            onRetry={() => void load()}
+            onRetry={refetch}
           />
         </div>
-      ) : rows === null ? (
+      ) : !rows ? (
         <TableSkeleton rows={5} cols={5} />
       ) : rows.length === 0 ? (
         <div className="card">
@@ -93,10 +86,12 @@ export default function CounterpartiesPage() {
       {modalOpen ? (
         <AddCounterpartyModal
           onClose={() => setModalOpen(false)}
-          onCreated={async () => {
+          onCreated={() => {
             setModalOpen(false);
             showToast({ title: "Counterparty added" });
-            await load();
+            // Refresh this list and anything else that shows counterparties
+            // (the create-transaction picker uses the same cache key).
+            invalidate("/api/counterparties");
           }}
         />
       ) : null}

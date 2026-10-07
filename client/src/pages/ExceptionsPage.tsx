@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
+import { useQuery } from "../lib/query";
 import { formatDateTime, formatRelative, EXCEPTION_LABELS } from "../lib/types";
 import type { ExceptionListRow } from "../lib/types";
 import {
@@ -21,26 +22,15 @@ const FILTERS = [
 
 export default function ExceptionsPage() {
   const navigate = useNavigate();
-  const [rows, setRows] = useState<ExceptionListRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
 
-  const load = useCallback(async (status: string) => {
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (status !== "ALL") params.set("status", status);
-      const qs = params.toString();
-      const data = await api.get<ExceptionListRow[]>(`/api/exceptions${qs ? `?${qs}` : ""}`);
-      setRows(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-    }
-  }, []);
-
-  useEffect(() => {
-    void load("ALL");
-  }, [load]);
+  // Operational data: never served stale — every visit revalidates in the
+  // background while the shell and skeleton stay on screen.
+  const key =
+    statusFilter === "ALL" ? "/api/exceptions" : `/api/exceptions?status=${statusFilter}`;
+  const { data: rows, error, refetch } = useQuery<ExceptionListRow[]>(key, () =>
+    api.get<ExceptionListRow[]>(key)
+  );
 
   return (
     <div className="content-max" style={{ maxWidth: "none" }}>
@@ -58,7 +48,6 @@ export default function ExceptionsPage() {
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
-              void load(e.target.value);
             }}
           >
             {FILTERS.map((f) => (
@@ -70,15 +59,15 @@ export default function ExceptionsPage() {
         </div>
       </div>
 
-      {error ? (
+      {error && !rows ? (
         <div className="card">
           <ErrorState
             title="Unable to load exceptions"
             message="We couldn't retrieve exceptions from the transaction service."
-            onRetry={() => void load(statusFilter)}
+            onRetry={refetch}
           />
         </div>
-      ) : rows === null ? (
+      ) : !rows ? (
         <TableSkeleton rows={6} cols={7} />
       ) : rows.length === 0 ? (
         <div className="card">

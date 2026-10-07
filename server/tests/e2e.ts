@@ -743,6 +743,102 @@ check("19. mark all read", readAll.status === 200, readAll.status);
 const afterAll = await notifications(token);
 check("19. unread count zero after read-all", afterAll.unreadCount === 0, afterAll.unreadCount);
 
+// ===========================================================================
+// Health / observability surface (public monitor target + dashboard snapshot)
+// ===========================================================================
+console.log("--- health & observability ---");
+
+const SECRET_PATTERN = /DATABASE_URL|DATABASE_CA_CERT|BEGIN CERTIFICATE|JWT_SECRET|password|secret/i;
+
+// Public, unauthenticated: this is exactly what a future external monitor
+// will call (GET https://nobryn.onrender.com/health → expect HTTP 200).
+const health = await req("GET", "/health");
+check(
+  "H. GET /health is public and returns 200",
+  health.status === 200,
+  health.status
+);
+check(
+  "H. /health reports service, timestamp and uptime",
+  health.json.service === "nobryn-api" &&
+    typeof health.json.timestamp === "string" &&
+    typeof health.json.uptime === "number",
+  health.json
+);
+check(
+  "H. /health response contains no secrets",
+  !SECRET_PATTERN.test(JSON.stringify(health.json)),
+  Object.keys(health.json)
+);
+
+const deep = await req("GET", "/health/deep");
+check(
+  "H. GET /health/deep is public and returns 200",
+  deep.status === 200,
+  deep.status
+);
+check(
+  "H. /health/deep measures database status and latency",
+  deep.json.status === "ok" &&
+    deep.json.database?.status === "ok" &&
+    typeof deep.json.database.latencyMs === "number" &&
+    typeof deep.json.latencyMs === "number",
+  deep.json
+);
+check(
+  "H. /health/deep response contains no secrets",
+  !SECRET_PATTERN.test(JSON.stringify(deep.json)),
+  Object.keys(deep.json)
+);
+
+// Dashboard snapshot: session-protected, never anonymous.
+const obsAnonymous = await req("GET", "/api/observability");
+check(
+  "H. /api/observability requires a session",
+  obsAnonymous.status === 401,
+  obsAnonymous.status
+);
+const obs = await req("GET", "/api/observability", undefined, token);
+check(
+  "H. /api/observability returns health + latency data",
+  obs.status === 200 &&
+    obs.json.database?.status === "ok" &&
+    typeof obs.json.latency?.p95Ms === "number" &&
+    typeof obs.json.api?.errorRatePercent === "number" &&
+    Array.isArray(obs.json.recentRequests) &&
+    Array.isArray(obs.json.slowOperations),
+  Object.keys(obs.json)
+);
+check(
+  "H. /api/observability response contains no secrets",
+  !SECRET_PATTERN.test(JSON.stringify(obs.json)),
+  Object.keys(obs.json)
+);
+
+// Page-level Overview endpoint (single round trip for the dashboard route).
+const overview = await req("GET", "/api/overview", undefined, token);
+check(
+  "H. GET /api/overview returns every Overview section",
+  overview.status === 200 &&
+    typeof overview.json.cards?.activeTransactions === "number" &&
+    Array.isArray(overview.json.recentTransactions) &&
+    Array.isArray(overview.json.openExceptions) &&
+    Array.isArray(overview.json.actionRequired) &&
+    Array.isArray(overview.json.recentActivity),
+  Object.keys(overview.json)
+);
+const summaryNow = await req("GET", "/api/summary", undefined, token);
+check(
+  "H. /api/overview matches the legacy /api/summary payload",
+  JSON.stringify({
+    cards: overview.json.cards,
+    recentTransactions: overview.json.recentTransactions,
+    openExceptions: overview.json.openExceptions,
+    actionRequired: overview.json.actionRequired,
+  }) === JSON.stringify(summaryNow.json),
+  "shape drift"
+);
+
 // --- cleanup ---------------------------------------------------------------
 await cleanup();
 

@@ -316,25 +316,15 @@ button {
 /* ---------------------------------------------------------------------------
    Shared page header
 
-   One system header for every route: a short Synthetic Lime tick as the
-   Nobryn mark, Bio Black title, muted support text, and a hairline that
-   anchors the header to the content below. Restrained — not a hero.
+   One system header for every route: Bio Black title, muted support text and
+   a hairline that anchors the header to the content below. Restrained — not a
+   hero, and no decorative strip above the title.
 --------------------------------------------------------------------------- */
 
 .page-header {
   margin-bottom: 32px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line);
-}
-
-.page-header::before {
-  content: "";
-  display: block;
-  flex: 0 0 100%;
-  width: 32px;
-  height: 3px;
-  background: var(--synthetic-lime);
-  margin-bottom: 12px;
 }
 
 .page-header h1 {

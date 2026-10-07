@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiClientError } from "../lib/api";
+import { fetchTransactionDetail } from "../lib/endpoints";
+import { invalidate, setQueryData, useQuery } from "../lib/query";
 import {
   EVENT_SOURCE_GROUPS,
   EXCEPTION_LABELS,
@@ -74,33 +76,25 @@ export default function TransactionDetailPage() {
   const { transactionId } = useParams<{ transactionId: string }>();
   const { workspace } = useAuth();
   const { showToast } = useToast();
-  const [tx, setTx] = useState<TransactionDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [resolveTarget, setResolveTarget] = useState<string | null>(null);
   const [eventMenuOpen, setEventMenuOpen] = useState(false);
   const eventMenuRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async () => {
-    if (!transactionId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.get<{ transaction: TransactionDetail }>(
-        `/api/transactions/${transactionId}`
-      );
-      setTx(res.transaction);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [transactionId]);
+  const key = transactionId ? `/api/transactions/${transactionId}` : null;
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // The shell renders immediately; a prefetched detail (hover/focus on the
+  // list) paints instantly and is revalidated in the background.
+  const { data: tx, error, loading, refetch } = useQuery<TransactionDetail>(key, () =>
+    fetchTransactionDetail(transactionId!)
+  );
+
+  /** Apply a mutation's authoritative response to the cache (no refetch). */
+  function applyTx(updated: TransactionDetail) {
+    if (key) setQueryData(key, updated);
+    // State may have changed: refresh everything derived from it elsewhere.
+    invalidate("/api/overview", "/api/exceptions", "/api/notifications");
+  }
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -136,7 +130,7 @@ export default function TransactionDetailPage() {
         ...(reportedQuantity != null ? { reportedQuantity } : {}),
       });
       const previousState = tx.state;
-      setTx(res.transaction);
+      applyTx(res.transaction);
       if (res.duplicate) {
         showToast({
           title: "Event already recorded",
@@ -166,7 +160,7 @@ export default function TransactionDetailPage() {
 
   function handleVerified(updated: TransactionDetail) {
     setConfirmOpen(false);
-    setTx(updated);
+    applyTx(updated);
     const reconciliation = updated.reconciliations.at(-1);
     if (reconciliation && reconciliation.result === "MISMATCH") {
       showToast({
@@ -209,7 +203,7 @@ export default function TransactionDetailPage() {
     );
   }
 
-  if (error || !tx) {
+  if (!tx) {
     return (
       <div className="content-max" style={{ maxWidth: "none" }}>
         <Link to="/app/transactions" className="text-13" style={{ color: "#647067", display: "inline-block", marginBottom: 16 }}>
@@ -218,8 +212,12 @@ export default function TransactionDetailPage() {
         <div className="card">
           <ErrorState
             title="Unable to load transaction"
-            message="We couldn't retrieve this transaction from the transaction service."
-            onRetry={() => void load()}
+            message={
+              error instanceof Error
+                ? error.message
+                : "We couldn't retrieve this transaction from the transaction service."
+            }
+            onRetry={refetch}
           />
         </div>
       </div>
@@ -838,10 +836,13 @@ export default function TransactionDetailPage() {
         <ResolveExceptionModal
           exceptionId={resolveTarget}
           onClose={() => setResolveTarget(null)}
-          onResolved={async () => {
+          onResolved={() => {
             setResolveTarget(null);
             showToast({ title: "Exception resolved" });
-            await load();
+            // Resolution changed authoritative state: refresh this detail and
+            // everything derived from it (overview, exceptions, notifications).
+            refetch();
+            invalidate("/api/overview", "/api/exceptions", "/api/notifications");
           }}
         />
       ) : null}

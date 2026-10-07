@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { TransactionState, ExceptionStatus } from "@prisma/client";
+import { ExceptionStatus } from "@prisma/client";
 import { prisma } from "../prisma.js";
 import { ApiError, asyncHandler, parseWith } from "../errors.js";
 import { requireAuth, requireWorkspace, type AuthedRequest } from "../auth.js";
@@ -29,13 +29,14 @@ import {
   listPolicies,
   updatePolicy,
 } from "../services/policies.js";
+import { getOverview } from "../services/overview.js";
+import { observabilityRouter } from "./observability.js";
 import {
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
   unreadNotificationCount,
 } from "../services/notifications.js";
-import { deriveActionRequired } from "../services/actionRequired.js";
 import { simulatorAdapter } from "../integrations/simulator.js";
 
 export const apiRouter = Router();
@@ -44,6 +45,11 @@ export const apiRouter = Router();
 const workspaceRouter = Router();
 workspaceRouter.use(requireAuth, requireWorkspace);
 apiRouter.use(workspaceRouter);
+
+// Health/latency snapshot for Nobryn's internal operational dashboard.
+// Mounted after the auth stack above, so it is session-protected; the public
+// monitor target is `GET /health` (see routes/health.ts).
+apiRouter.use("/observability", observabilityRouter);
 
 /**
  * After requireAuth + requireWorkspace have run, every handler receives an
@@ -132,11 +138,30 @@ workspaceRouter.get(
   "/counterparties",
   asyncHandler(async (req, res) => {
     const { workspaceId } = ctx(req);
-    const counterparties = await prisma.counterparty.findMany({
-      where: { workspaceId },
-      include: { transactions: { select: { updatedAt: true } } },
-      orderBy: { companyName: "asc" },
-    });
+    // Two independent, indexed queries instead of loading every transaction's
+    // updatedAt row per counterparty: row count and latest activity.
+    const [counterparties, activity] = await Promise.all([
+      prisma.counterparty.findMany({
+        where: { workspaceId },
+        select: {
+          id: true,
+          companyName: true,
+          contactName: true,
+          email: true,
+          createdAt: true,
+          _count: { select: { transactions: true } },
+        },
+        orderBy: { companyName: "asc" },
+      }),
+      prisma.transaction.groupBy({
+        by: ["counterpartyId"],
+        where: { workspaceId },
+        _max: { updatedAt: true },
+      }),
+    ]);
+    const lastActivity = new Map(
+      activity.map((row) => [row.counterpartyId, row._max.updatedAt])
+    );
     res.json(
       counterparties.map((c) => ({
         id: c.id,
@@ -144,10 +169,8 @@ workspaceRouter.get(
         contactName: c.contactName,
         email: c.email,
         createdAt: c.createdAt.toISOString(),
-        transactionCount: c.transactions.length,
-        lastActivity: c.transactions.length
-          ? c.transactions.map((t) => t.updatedAt.toISOString()).sort().at(-1)!
-          : null,
+        transactionCount: c._count.transactions,
+        lastActivity: lastActivity.get(c.id)?.toISOString() ?? null,
       }))
     );
   })
@@ -198,7 +221,19 @@ workspaceRouter.get(
     }
     const transactions = await prisma.transaction.findMany({
       where,
-      include: { counterparty: true },
+      // Projection: only the columns the list renders (plus the counterparty
+      // name) — no full-row reads and no relation tree.
+      select: {
+        id: true,
+        purchaseOrderNumber: true,
+        description: true,
+        amount: true,
+        currency: true,
+        state: true,
+        expectedDeliveryDate: true,
+        updatedAt: true,
+        counterparty: { select: { companyName: true } },
+      },
       orderBy: { updatedAt: "desc" },
     });
     res.json(
@@ -231,13 +266,17 @@ workspaceRouter.get(
   "/transactions/:id",
   asyncHandler(async (req, res) => {
     const { workspaceId } = ctx(req);
-    const tx = await getTransactionForDisplay(workspaceId, param(req, "id"));
-    // Event provenance for this transaction (observable event handling).
-    const events = await prisma.integrationEvent.findMany({
-      where: { workspaceId, transactionId: tx.id },
-      orderBy: { receivedAt: "desc" },
-      take: 30,
-    });
+    const id = param(req, "id");
+    // Detail payload and event provenance are independent (both are keyed by
+    // the transaction id in the URL), so they are fetched concurrently.
+    const [tx, events] = await Promise.all([
+      getTransactionForDisplay(workspaceId, id),
+      prisma.integrationEvent.findMany({
+        where: { workspaceId, transactionId: id },
+        orderBy: { receivedAt: "desc" },
+        take: 30,
+      }),
+    ]);
     res.json({
       transaction: {
         ...serializeTransaction(tx),
@@ -350,12 +389,11 @@ workspaceRouter.get(
   asyncHandler(async (req, res) => {
     const { workspaceId } = ctx(req);
     const { unread } = req.query as { unread?: string };
-    res.json({
-      notifications: await listNotifications(workspaceId, {
-        unreadOnly: unread === "1" || unread === "true",
-      }),
-      unreadCount: await unreadNotificationCount(workspaceId),
-    });
+    const [notifications, unreadCount] = await Promise.all([
+      listNotifications(workspaceId, { unreadOnly: unread === "1" || unread === "true" }),
+      unreadNotificationCount(workspaceId),
+    ]);
+    res.json({ notifications, unreadCount });
   })
 );
 
@@ -416,61 +454,35 @@ workspaceRouter.post(
 );
 
 // ---------------------------------------------------------------------------
-// Overview summary
+// Overview (page-level) + summary
 // ---------------------------------------------------------------------------
 
+/**
+ * Page-level endpoint for the Overview route: metrics, recent transactions,
+ * open exceptions, action required and the activity feed in one response,
+ * assembled concurrently by the overview service. This replaces the previous
+ * pattern of fetching `/api/summary` and then the entire `/api/transactions`
+ * list just to render eight activity rows.
+ */
+workspaceRouter.get(
+  "/overview",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    res.json(await getOverview(workspaceId));
+  })
+);
+
+/** Legacy summary payload (same data as `/overview` minus `recentActivity`). */
 workspaceRouter.get(
   "/summary",
   asyncHandler(async (req, res) => {
     const { workspaceId } = ctx(req);
-    const [activeTransactions, openExceptions, completed, counterparties, recent, openList] =
-      await Promise.all([
-        prisma.transaction.count({
-          where: { workspaceId, state: { not: TransactionState.COMPLETED } },
-        }),
-        prisma.exception.count({
-          where: { transaction: { workspaceId }, status: { not: ExceptionStatus.RESOLVED } },
-        }),
-        prisma.transaction.count({ where: { workspaceId, state: TransactionState.COMPLETED } }),
-        prisma.counterparty.count({ where: { workspaceId } }),
-        prisma.transaction.findMany({
-          where: { workspaceId },
-          include: { counterparty: true },
-          orderBy: { updatedAt: "desc" },
-          take: 5,
-        }),
-        prisma.exception.findMany({
-          where: { transaction: { workspaceId }, status: { not: ExceptionStatus.RESOLVED } },
-          include: { transaction: { select: { id: true, purchaseOrderNumber: true } } },
-          orderBy: { detectedAt: "desc" },
-          take: 5,
-        }),
-      ]);
+    const overview = await getOverview(workspaceId);
     res.json({
-      cards: {
-        activeTransactions,
-        exceptions: openExceptions,
-        completed,
-        counterparties,
-      },
-      recentTransactions: recent.map((t) => ({
-        id: t.id,
-        purchaseOrderNumber: t.purchaseOrderNumber,
-        counterpartyName: t.counterparty.companyName,
-        amount: Number(t.amount),
-        currency: t.currency,
-        state: t.state,
-        updatedAt: t.updatedAt.toISOString(),
-      })),        openExceptions: openList.map((x) => ({
-        id: x.id,
-        transactionId: x.transaction.id,
-        purchaseOrderNumber: x.transaction.purchaseOrderNumber,
-        type: x.type,
-        status: x.status,
-        detectedAt: x.detectedAt.toISOString(),
-        nextAction: x.nextAction,
-      })),
-      actionRequired: await deriveActionRequired(workspaceId),
+      cards: overview.cards,
+      recentTransactions: overview.recentTransactions,
+      openExceptions: overview.openExceptions,
+      actionRequired: overview.actionRequired,
     });
   })
 );

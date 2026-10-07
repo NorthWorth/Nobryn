@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { api, ApiClientError } from "../lib/api";
-import type { PolicyInfo } from "../lib/types";
+import { invalidate, useQuery } from "../lib/query";
+import type { ObservabilitySnapshot, PolicyInfo } from "../lib/types";
+import { formatRelative } from "../lib/types";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
-import { Button, Field, Input, Modal, Select } from "../components/ui";
+import { Button, CardSkeleton, Field, Input, Modal, Select } from "../components/ui";
 
 export default function SettingsPage() {
   const { user, workspace, setWorkspace, setUser } = useAuth();
@@ -16,9 +18,18 @@ export default function SettingsPage() {
   const [savingWorkspace, setSavingWorkspace] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [policies, setPolicies] = useState<PolicyInfo[] | null>(null);
-  const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [policyModal, setPolicyModal] = useState<PolicyInfo | null | undefined>(undefined);
+
+  // Policies are configuration: cached for a minute and revalidated in the
+  // background, so this page paints instantly on repeat visits.
+  const { data: policiesResponse, error: policiesError, refetch: loadPolicies } = useQuery<{
+    policies: PolicyInfo[];
+  }>(
+    "/api/policies",
+    () => api.get<{ policies: PolicyInfo[] }>("/api/policies"),
+    { staleTime: 60_000 }
+  );
+  const policies = policiesResponse?.policies ?? null;
 
   useEffect(() => {
     if (workspace) setWorkspaceName(workspace.name);
@@ -31,21 +42,6 @@ export default function SettingsPage() {
     }
   }, [user]);
 
-  const loadPolicies = async () => {
-    setPoliciesError(null);
-    try {
-      const res = await api.get<{ policies: PolicyInfo[] }>("/api/policies");
-      setPolicies(res.policies);
-    } catch (err) {
-      setPoliciesError(
-        err instanceof Error ? err.message : "Unable to load transaction policies."
-      );
-    }
-  };
-
-  useEffect(() => {
-    void loadPolicies();
-  }, []);
 
   async function saveWorkspace(e: FormEvent) {
     e.preventDefault();
@@ -144,9 +140,13 @@ export default function SettingsPage() {
           Policies define how transactions verify, reconcile and complete. New transactions
           execute under the selected policy.
         </p>
-        {policiesError ? (
+        {policiesError && policies === null ? (
           <div role="alert" style={{ fontSize: 13 }}>
-            <span className="text-error">{policiesError}</span>{" "}
+            <span className="text-error">
+              {policiesError instanceof Error
+                ? policiesError.message
+                : "Unable to load transaction policies."}
+            </span>{" "}
             <button
               type="button"
               className="text-12"
@@ -158,7 +158,7 @@ export default function SettingsPage() {
                 border: "none",
                 padding: 0,
               }}
-              onClick={() => void loadPolicies()}
+              onClick={() => loadPolicies()}
             >
               Try again
             </button>
@@ -273,6 +273,8 @@ export default function SettingsPage() {
         </form>
       </section>
 
+      <SystemHealth />
+
       {policyModal !== undefined ? (
         <PolicyModal
           policy={policyModal}
@@ -280,7 +282,7 @@ export default function SettingsPage() {
           onSaved={async () => {
             setPolicyModal(undefined);
             showToast({ title: "Policy saved" });
-            await loadPolicies();
+            invalidate("/api/policies");
           }}
         />
       ) : null}
@@ -464,4 +466,242 @@ function PolicyModal({
       </div>
     </Modal>
   );
+}
+
+/**
+ * Nobryn's own operational view of the API: status, latency, slow operations
+ * and recent failures, straight from `GET /api/observability`.
+ *
+ * Deliberately small and built from the same cards and badges as the rest of
+ * Settings — an internal panel, not a monitoring product. The future external
+ * monitor targets the public `GET /health` endpoint instead.
+ */
+function SystemHealth() {
+  const { data, error, loading, refetch } = useQuery<ObservabilitySnapshot>(
+    "/api/observability",
+    () => api.get<ObservabilitySnapshot>("/api/observability"),
+    { staleTime: 15_000 }
+  );
+
+  const dbBadge =
+    data?.database.status === "ok"
+      ? { text: "Connected", cls: "badge-success" }
+      : data?.database.status === "timeout"
+        ? { text: "Slow", cls: "badge-warning" }
+        : data?.database.status === "error"
+          ? { text: "Unavailable", cls: "badge-error" }
+          : { text: "Not checked", cls: "badge-neutral" };
+
+  return (
+    <section className="card card-pad" aria-label="System health" style={{ marginBottom: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+          marginBottom: 8,
+        }}
+      >
+        <h2 className="card-heading">System health</h2>
+        {data ? (
+          <span className="text-12 text-muted">Observed {formatRelative(data.timestamp)}</span>
+        ) : null}
+      </div>
+      <p className="text-12 text-muted" style={{ margin: "0 0 16px 0" }}>
+        Live API and database diagnostics for this deployment. The public monitoring target is{" "}
+        <span className="mono">GET /health</span> — HTTP 200 means the service is up.
+      </p>
+
+      {loading && !data ? (
+        <CardSkeleton lines={6} />
+      ) : error && !data ? (
+        <div role="alert" style={{ fontSize: 13 }}>
+          <span className="text-error">Health data is unavailable right now.</span>{" "}
+          <button
+            type="button"
+            className="text-12"
+            style={{
+              color: "var(--ink)",
+              fontWeight: 500,
+              cursor: "pointer",
+              background: "none",
+              border: "none",
+              padding: 0,
+            }}
+            onClick={refetch}
+          >
+            Try again
+          </button>
+        </div>
+      ) : data ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+              gap: 16,
+            }}
+          >
+            <HealthFact
+              label="API"
+              value={data.api.status === "ok" ? "Operational" : "Degraded"}
+              badgeClass={data.api.status === "ok" ? "badge-success" : "badge-warning"}
+              support={`${data.api.requests} requests · ${data.api.errorRatePercent}% errors`}
+            />
+            <HealthFact
+              label="Database"
+              value={dbBadge.text}
+              badgeClass={dbBadge.cls}
+              support={
+                data.database.latencyMs != null
+                  ? `Round trip ${data.database.latencyMs}ms`
+                  : "No check recorded yet"
+              }
+            />
+            <HealthFact
+              label="API response latency"
+              value={`p50 ${data.latency.p50Ms}ms`}
+              support={`p95 ${data.latency.p95Ms}ms · ${data.latency.windowSamples} samples`}
+            />
+            <HealthFact
+              label="Last successful health check"
+              value={data.database.lastCheckedAt ? formatRelative(data.database.lastCheckedAt) : "—"}
+              support={`Uptime ${formatUptime(data.uptimeSeconds)} · v${data.version}`}
+            />
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: 20,
+            }}
+          >
+            <div>
+              <div className="text-12 text-muted" style={{ fontWeight: 500, marginBottom: 6 }}>
+                Slow operations
+              </div>
+              {data.slowOperations.length === 0 ? (
+                <p className="text-12 text-muted" style={{ margin: 0 }}>
+                  No request has exceeded 500ms in this instance.
+                </p>
+              ) : (
+                <ul
+                  style={{
+                    listStyle: "none",
+                    margin: 0,
+                    padding: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                  }}
+                >
+                  {data.slowOperations.slice(0, 5).map((op, idx) => (
+                    <li
+                      key={`${op.method}-${op.path}-${idx}`}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        fontSize: 12,
+                      }}
+                    >
+                      <span className="mono" style={{ overflowWrap: "anywhere" }}>
+                        {op.method} {op.path}
+                      </span>
+                      <span className="mono" style={{ flex: "none", color: "var(--muted)" }}>
+                        {op.totalMs}ms
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <div className="text-12 text-muted" style={{ fontWeight: 500, marginBottom: 6 }}>
+                Recent failures
+              </div>
+              {data.recentFailures.length === 0 ? (
+                <p className="text-12 text-muted" style={{ margin: 0 }}>
+                  No failed requests in the current window.
+                </p>
+              ) : (
+                <ul
+                  style={{
+                    listStyle: "none",
+                    margin: 0,
+                    padding: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4,
+                  }}
+                >
+                  {data.recentFailures.slice(0, 5).map((op, idx) => (
+                    <li
+                      key={`${op.method}-${op.path}-${idx}`}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        fontSize: 12,
+                      }}
+                    >
+                      <span className="mono" style={{ overflowWrap: "anywhere" }}>
+                        {op.method} {op.path} · {op.status}
+                      </span>
+                      <span style={{ flex: "none", color: "var(--muted)" }}>
+                        {formatRelative(op.at)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function HealthFact({
+  label,
+  value,
+  support,
+  badgeClass,
+}: {
+  label: string;
+  value: string;
+  support: string;
+  badgeClass?: string;
+}) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div className="text-12 text-muted">{label}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+        {badgeClass ? (
+          <span className={`badge ${badgeClass}`}>
+            <span className="dot" aria-hidden />
+            {value}
+          </span>
+        ) : (
+          <span style={{ fontSize: 14, fontWeight: 600 }}>{value}</span>
+        )}
+      </div>
+      <div className="text-12 text-muted" style={{ marginTop: 4 }}>
+        {support}
+      </div>
+    </div>
+  );
+}
+
+function formatUptime(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
 }

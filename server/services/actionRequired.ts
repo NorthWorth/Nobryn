@@ -39,10 +39,68 @@ const SEVERITY_RANK: Record<ActionRequiredItem["severity"], number> = {
 export async function deriveActionRequired(workspaceId: string): Promise<ActionRequiredItem[]> {
   const items: ActionRequiredItem[] = [];
 
-  const transactions = await prisma.transaction.findMany({
-    where: { workspaceId },
-    include: { evidence: true, exceptions: true, policy: true, activity: true },
-  });
+  /**
+   * Only transactions that can actually contribute an item are loaded:
+   *  - an unverified "Delivery reported" claim (verification item), or
+   *  - at least one unresolved exception (exception item).
+   * Everything else is excluded by the database instead of being fetched and
+   * discarded, and each relation is projected down to the fields the logic
+   * reads — no whole-record loads, no full activity history.
+   *
+   * Output is identical to the previous "load every transaction with every
+   * relation" version: the extra rows this filter can still return (a claim
+   * that was already delivery-verified) produce no item, exactly as before.
+   */
+  const [transactions, rejected] = await Promise.all([
+    prisma.transaction.findMany({
+      where: {
+        workspaceId,
+        OR: [
+          { evidence: { some: { type: "Delivery reported", verified: false } } },
+          { exceptions: { some: { status: { not: ExceptionStatus.RESOLVED } } } },
+        ],
+      },
+      select: {
+        id: true,
+        purchaseOrderNumber: true,
+        policy: true,
+        evidence: {
+          select: {
+            type: true,
+            verified: true,
+            receivedAt: true,
+            source: true,
+            reference: true,
+          },
+        },
+        exceptions: {
+          where: { status: { not: ExceptionStatus.RESOLVED } },
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            severity: true,
+            blocking: true,
+            description: true,
+            nextAction: true,
+            detectedAt: true,
+          },
+        },
+        activity: {
+          where: { type: "CLAIM_RECEIVED" },
+          select: { type: true, metadata: true },
+        },
+      },
+    }),
+    // Rejected integration events need investigation. Independent of the
+    // transaction scan above, so both run concurrently.
+    prisma.integrationEvent.findMany({
+      where: { workspaceId, status: EVENT_STATUS.REJECTED },
+      include: { transaction: { select: { purchaseOrderNumber: true } } },
+      orderBy: { receivedAt: "desc" },
+      take: 10,
+    }),
+  ]);
 
   for (const tx of transactions) {
     // Delivery claim awaiting human verification (only while still unverified).
@@ -110,13 +168,8 @@ export async function deriveActionRequired(workspaceId: string): Promise<ActionR
     }
   }
 
-  // Rejected integration events need investigation.
-  const rejected = await prisma.integrationEvent.findMany({
-    where: { workspaceId, status: EVENT_STATUS.REJECTED },
-    include: { transaction: { select: { purchaseOrderNumber: true } } },
-    orderBy: { receivedAt: "desc" },
-    take: 10,
-  });
+  // Rejected integration events are appended after the transaction-derived
+  // items (same order as before), then everything is ranked together.
   for (const row of rejected) {
     items.push({
       id: `event:${row.id}`,

@@ -182,10 +182,45 @@ POST   /api/transactions/:id/evidence
 POST   /api/transactions/:id/exceptions   (simulated demo exceptions)
 
 GET    /api/exceptions             POST   /api/exceptions/:id/resolve
-GET    /api/summary                GET    /api/health
+GET    /api/summary                GET    /api/overview
+GET    /api/observability          GET    /api/health
+
+GET    /health                     GET    /health/deep      (public, no auth)
 ```
 
-All routes except `/api/auth/*` and `/api/health` require a Bearer token and resolve the caller's workspace; one workspace can never read another's data.
+All routes except `/api/auth/*`, `/api/health`, `/health` and `/health/deep` require a Bearer token and resolve the caller's workspace; one workspace can never read another's data.
+
+## Health & monitoring
+
+The API exposes two health endpoints designed to be called by an external
+monitor later — **no monitoring provider is configured today, and none is
+required until one is chosen**:
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /health` | none | Liveness: process up, Express responding. No database access, a few milliseconds. |
+| `GET /health/deep` | none | Diagnostics: adds one PostgreSQL round trip with latency. Returns `503` + `status: "degraded"` if the database is unreachable. |
+| `GET /api/observability` | session | Snapshot for Nobryn's own dashboard: API/database status, latency percentiles, slow operations, error rate, recent failures. |
+
+Recommended future monitor configuration (not configured yet):
+
+```
+URL:      https://nobryn.onrender.com/health
+Method:   GET
+Expect:   HTTP 200  → UP,  anything else → DOWN
+Interval: 5–10 minutes (the Render free tier sleeps after inactivity, so the
+          first probe after idle is a cold start: slower, but still 200)
+```
+
+Neither health endpoint returns credentials, connection strings, certificates
+or any other environment value — only operational metadata (service name,
+version/build, timestamp, uptime, database status and latency).
+
+Request timing is instrumented globally (`server/observability/`): every API
+request logs one line such as
+`[nobryn] GET /api/overview status=200 total=451ms db=319ms queries=8` —
+pathname only, never query strings, bodies or headers. Endpoint latency can be
+re-measured at any time with `bun run measure` (from `server/`).
 
 ## State machine
 

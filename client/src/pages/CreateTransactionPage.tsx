@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiClientError } from "../lib/api";
+import { invalidate, useQuery } from "../lib/query";
 import { formatMoney } from "../lib/types";
 import type { Counterparty, PolicyInfo } from "../lib/types";
 import { useToast } from "../lib/toast";
@@ -18,8 +19,6 @@ const EMPTY_ITEM: ItemDraft = { name: "", quantity: "", unitPrice: "" };
 export default function CreateTransactionPage() {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [counterparties, setCounterparties] = useState<Counterparty[] | null>(null);
-  const [policies, setPolicies] = useState<PolicyInfo[]>([]);
   const [policyId, setPolicyId] = useState("");
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState("");
   const [counterpartyId, setCounterpartyId] = useState("");
@@ -34,7 +33,23 @@ export default function CreateTransactionPage() {
   const [items, setItems] = useState<ItemDraft[]>([{ ...EMPTY_ITEM }]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Configuration data: cached for a minute, shared with the Counterparties
+  // and Settings routes (same cache key), refreshed in the background.
+  const { data: counterpartiesData, error: counterpartiesError } = useQuery<Counterparty[]>(
+    "/api/counterparties",
+    () => api.get<Counterparty[]>("/api/counterparties"),
+    { staleTime: 60_000 }
+  );
+  const counterparties = counterpartiesData ?? null;
+  const loadError = counterpartiesError ? "Unable to load counterparties." : null;
+
+  const { data: policiesResponse } = useQuery<{ policies: PolicyInfo[] }>(
+    "/api/policies",
+    () => api.get<{ policies: PolicyInfo[] }>("/api/policies"),
+    { staleTime: 60_000 }
+  );
+  const policies = policiesResponse?.policies ?? [];
 
   const total = useMemo(() => {
     return items.reduce((sum, item) => {
@@ -43,26 +58,6 @@ export default function CreateTransactionPage() {
       return sum + q * p;
     }, 0);
   }, [items]);
-
-  async function loadCounterparties() {
-    try {
-      const data = await api.get<Counterparty[]>("/api/counterparties");
-      setCounterparties(data);
-      setLoadError(null);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Unable to load counterparties.");
-    }
-  }
-
-  useEffect(() => {
-    void loadCounterparties();
-    // Policy selection is optional: an empty value uses the workspace default.
-    api
-      .get<{ policies: PolicyInfo[] }>("/api/policies")
-      .then((res) => setPolicies(res.policies))
-      .catch(() => setPolicies([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function validate(): boolean {
     const errors: Record<string, string> = {};
@@ -113,6 +108,7 @@ export default function CreateTransactionPage() {
           email: cpEmail.trim(),
         });
         cpId = created.counterparty.id;
+        invalidate("/api/counterparties");
       }
       const payloadItems = items
         .filter((i) => i.name.trim() || i.quantity || i.unitPrice)
@@ -132,6 +128,9 @@ export default function CreateTransactionPage() {
         items: payloadItems,
       });
       showToast({ title: "Transaction created" });
+      // The list, overview metrics and activity all change with a new
+      // transaction: refresh them so the next visit shows fresh numbers.
+      invalidate("/api/transactions", "/api/overview");
       navigate(`/app/transactions/${res.transaction.id}`);
     } catch (err) {
       if (err instanceof ApiClientError) {

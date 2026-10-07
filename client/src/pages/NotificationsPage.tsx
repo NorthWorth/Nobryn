@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiClientError } from "../lib/api";
+import { invalidate, useQuery } from "../lib/query";
 import { formatDateTime } from "../lib/types";
 import type { NotificationItem, NotificationSeverity } from "../lib/types";
 import { useToast } from "../lib/toast";
@@ -26,33 +27,17 @@ const SEVERITY_LABEL: Record<NotificationSeverity, string> = {
 export default function NotificationsPage() {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [data, setData] = useState<{
-    notifications: NotificationItem[];
-    unreadCount: number;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [markingAll, setMarkingAll] = useState(false);
   const [openingId, setOpeningId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.get<{ notifications: NotificationItem[]; unreadCount: number }>(
-        "/api/notifications"
-      );
-      setData(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Operational data: always revalidated, cached between visits so returning
+  // to this route paints immediately and then refreshes.
+  const { data, error, loading, refetch } = useQuery<{
+    notifications: NotificationItem[];
+    unreadCount: number;
+  }>("/api/notifications", () =>
+    api.get<{ notifications: NotificationItem[]; unreadCount: number }>("/api/notifications")
+  );
 
   /** Mark as read (when unread) and go to the related transaction/exception. */
   async function openNotification(notification: NotificationItem) {
@@ -60,6 +45,9 @@ export default function NotificationsPage() {
     try {
       if (!notification.readAt) {
         await api.post(`/api/notifications/${notification.id}/read`);
+        // Reading a notification changes authoritative state: refresh this
+        // list and the sidebar's unread indicator.
+        invalidate("/api/notifications");
       }
       navigate(notification.targetPath);
     } catch (err) {
@@ -77,7 +65,7 @@ export default function NotificationsPage() {
     try {
       await api.post("/api/notifications/read-all");
       showToast({ title: "All notifications marked as read" });
-      await load();
+      invalidate("/api/notifications");
     } catch (err) {
       showToast({
         title:
@@ -113,12 +101,12 @@ export default function NotificationsPage() {
         ) : null}
       </div>
 
-      {error ? (
+      {error && !data ? (
         <div className="card">
           <ErrorState
             title="Unable to load notifications"
             message="We couldn't retrieve your notifications from the transaction service."
-            onRetry={() => void load()}
+            onRetry={refetch}
           />
         </div>
       ) : loading && !data ? (

@@ -70,7 +70,18 @@ export async function requireWorkspace(req: Request, res: Response, next: NextFu
       res.status(401).json({ error: "You must be signed in to do that." });
       return;
     }
-    const user = await prisma.user.findUnique({ where: { id: authReq.user.id } });
+    // Both lookups are keyed off the id already verified in the JWT, so they
+    // are independent and run concurrently — one round trip instead of two on
+    // every authenticated request. The response order is unchanged: an
+    // unknown user still wins with 401 before workspace resolution is
+    // considered.
+    const [user, workspace] = await Promise.all([
+      prisma.user.findUnique({ where: { id: authReq.user.id } }),
+      prisma.workspace.findFirst({
+        where: { ownerId: authReq.user.id },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
     if (!user) {
       res.status(401).json({ error: "Your session has expired. Please sign in again." });
       return;
@@ -81,10 +92,6 @@ export async function requireWorkspace(req: Request, res: Response, next: NextFu
       firstName: user.firstName,
       lastName: user.lastName,
     };
-    const workspace = await prisma.workspace.findFirst({
-      where: { ownerId: user.id },
-      orderBy: { createdAt: "asc" },
-    });
     if (!workspace) {
       res.status(403).json({ error: "No workspace found for this account." });
       return;

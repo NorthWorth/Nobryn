@@ -4,9 +4,16 @@ import "./env.js";
 import { errorHandler } from "./errors.js";
 import { authRouter } from "./routes/auth.js";
 import { apiRouter } from "./routes/api.js";
+import { healthRouter } from "./routes/health.js";
+import { requestTiming } from "./observability/timing.js";
 
 const app = express();
 app.disable("x-powered-by");
+
+// Lightweight timing instrumentation for every request: records duration and
+// database time per route and logs slow/normal API calls (health probes are
+// measured but excluded from metrics and logs).
+app.use(requestTiming());
 app.use(express.json({ limit: "1mb" }));
 
 const corsOrigin = process.env.CORS_ORIGIN;
@@ -19,6 +26,10 @@ if (corsOrigin) {
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "nobryn-api" });
 });
+
+// Public health endpoints (no auth): `GET /health` for the future external
+// monitor, `GET /health/deep` for internal diagnostics. See routes/health.ts.
+app.use(healthRouter);
 
 app.use("/api/auth", authRouter);
 app.use("/api", apiRouter);

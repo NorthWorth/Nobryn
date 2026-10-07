@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "../lib/api";
+import { fetchTransactionDetail, fetchTransactionList } from "../lib/endpoints";
+import { prefetch, useQuery } from "../lib/query";
 import { formatMoney, formatRelative, formatDate } from "../lib/types";
 import type { TransactionListItem } from "../lib/types";
 import {
@@ -24,41 +25,39 @@ const STATE_FILTERS: { value: string; label: string }[] = [
 
 export default function TransactionsPage() {
   const navigate = useNavigate();
-  const [transactions, setTransactions] = useState<TransactionListItem[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [stateFilter, setStateFilter] = useState("ALL");
   const debounceRef = useRef<number | undefined>(undefined);
 
-  const load = useCallback(async (opts: { search?: string; state?: string }) => {
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (opts.search) params.set("search", opts.search);
-      if (opts.state && opts.state !== "ALL") params.set("state", opts.state);
-      const qs = params.toString();
-      const data = await api.get<TransactionListItem[]>(`/api/transactions${qs ? `?${qs}` : ""}`);
-      setTransactions(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-    }
-  }, []);
-
+  // Debounce the search box so typing does not fire a request per keystroke.
   useEffect(() => {
-    void load({});
-  }, [load]);
-
-  function onSearchChange(value: string) {
-    setSearch(value);
     window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(() => {
-      void load({ search: value, state: stateFilter });
-    }, 250);
-  }
+    debounceRef.current = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(debounceRef.current);
+  }, [search]);
+
+  const key = useMemo(() => {
+    const params = new URLSearchParams();
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    if (stateFilter !== "ALL") params.set("state", stateFilter);
+    const qs = params.toString();
+    return `/api/transactions${qs ? `?${qs}` : ""}`;
+  }, [debouncedSearch, stateFilter]);
+
+  // One cached request per filter combination: switching back to a previous
+  // filter paints instantly from cache and revalidates in the background.
+  const { data: transactions, error, refetch } = useQuery<TransactionListItem[]>(key, () =>
+    fetchTransactionList(key)
+  );
 
   function onStateFilterChange(value: string) {
     setStateFilter(value);
-    void load({ search, state: value });
+  }
+
+  /** Prefetch a transaction's detail when the user shows intent (hover/focus). */
+  function previewTransaction(id: string) {
+    prefetch(`/api/transactions/${id}`, () => fetchTransactionDetail(id));
   }
 
   const filtered = useMemo(() => transactions ?? [], [transactions]);
@@ -84,7 +83,7 @@ export default function TransactionsPage() {
             aria-label="Search transactions"
             placeholder="Search transactions"
             value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
+            onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <div className="toolbar-filter">
@@ -102,15 +101,15 @@ export default function TransactionsPage() {
         </div>
       </div>
 
-      {error ? (
+      {error && !transactions ? (
         <div className="card">
           <ErrorState
             title="Unable to load transactions"
             message="We couldn't retrieve your transactions from the transaction service."
-            onRetry={() => void load({ search, state: stateFilter })}
+            onRetry={refetch}
           />
         </div>
-      ) : transactions === null ? (
+      ) : !transactions ? (
         <TableSkeleton rows={7} cols={6} />
       ) : filtered.length === 0 ? (
         <div className="card">
@@ -123,8 +122,8 @@ export default function TransactionsPage() {
                   variant="secondary"
                   onClick={() => {
                     setSearch("");
+                    setDebouncedSearch("");
                     setStateFilter("ALL");
-                    void load({});
                   }}
                 >
                   Clear search and filters
@@ -164,6 +163,8 @@ export default function TransactionsPage() {
                   tabIndex={0}
                   aria-label={`Open transaction ${t.purchaseOrderNumber}`}
                   onClick={() => navigate(`/app/transactions/${t.id}`)}
+                  onMouseEnter={() => previewTransaction(t.id)}
+                  onFocus={() => previewTransaction(t.id)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") navigate(`/app/transactions/${t.id}`);
                   }}

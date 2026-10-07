@@ -13,7 +13,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "verify:tls": "node scripts/verify-tls.mjs",
-    "test": "tsx tests/e2e.ts"
+    "test": "tsx tests/e2e.ts",
+    "measure": "tsx scripts/measure-latency.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
