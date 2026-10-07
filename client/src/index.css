@@ -200,10 +200,14 @@ button {
   display: none;
 }
 
+/* The page environment: Soft Chrome canvas, explicitly applied so the
+ * content area can never fall back to a bare white sheet. White is reserved
+ * for content surfaces (cards, forms, tables, panels) sitting on top. */
 .main-content {
   flex: 1;
   min-width: 0;
   padding: 32px 32px 48px 32px;
+  background: var(--canvas);
 }
 
 .content-max {
@@ -311,10 +315,26 @@ button {
 
 /* ---------------------------------------------------------------------------
    Shared page header
+
+   One system header for every route: a short Synthetic Lime tick as the
+   Nobryn mark, Bio Black title, muted support text, and a hairline that
+   anchors the header to the content below. Restrained — not a hero.
 --------------------------------------------------------------------------- */
 
 .page-header {
   margin-bottom: 32px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.page-header::before {
+  content: "";
+  display: block;
+  flex: 0 0 100%;
+  width: 32px;
+  height: 3px;
+  background: var(--synthetic-lime);
+  margin-bottom: 12px;
 }
 
 .page-header h1 {
@@ -323,6 +343,7 @@ button {
   font-weight: 600;
   margin: 0;
   letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
 .page-header .support {
@@ -601,7 +622,7 @@ table.nbt th {
   text-align: left;
   font-size: 12px;
   font-weight: 500;
-  color: var(--muted);
+  color: var(--ink);
   background: var(--canvas);
   padding: 12px 16px;
   border-bottom: 1px solid var(--line);

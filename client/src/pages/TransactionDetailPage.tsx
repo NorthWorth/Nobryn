@@ -508,6 +508,7 @@ export default function TransactionDetailPage() {
                     key={e.id}
                     style={{
                       border: "1px solid #D9E0DC",
+                      background: "var(--soft-chrome)",
                       borderRadius: 6,
                       padding: "12px 16px",
                     }}
@@ -540,7 +541,12 @@ export default function TransactionDetailPage() {
                 {tx.reconciliations.map((reconciliation, idx) => (
                   <div
                     key={`${reconciliation.at}-${idx}`}
-                    style={{ border: "1px solid #D9E0DC", borderRadius: 6, padding: "12px 16px" }}
+                    style={{
+                      border: "1px solid #D9E0DC",
+                      background: "var(--soft-chrome)",
+                      borderRadius: 6,
+                      padding: "12px 16px",
+                    }}
                   >
                     <div
                       style={{
@@ -675,7 +681,7 @@ export default function TransactionDetailPage() {
             ) : (
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
                 {tx.exceptions.map((x) => (
-                  <li key={x.id} style={{ border: "1px solid #D9E0DC", borderRadius: 6, padding: 16 }}>
+                  <li key={x.id} style={{ border: "1px solid #D9E0DC", background: "var(--soft-chrome)", borderRadius: 6, padding: 16 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                         <span className="badge badge-warning">
@@ -759,7 +765,12 @@ export default function TransactionDetailPage() {
                 {tx.events.map((event) => (
                   <li
                     key={event.id}
-                    style={{ border: "1px solid #D9E0DC", borderRadius: 6, padding: "12px 16px" }}
+                    style={{
+                      border: "1px solid #D9E0DC",
+                      background: "var(--soft-chrome)",
+                      borderRadius: 6,
+                      padding: "12px 16px",
+                    }}
                   >
                     <div
                       style={{

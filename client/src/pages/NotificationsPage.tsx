@@ -190,7 +190,8 @@ export default function NotificationsPage() {
                               width: 7,
                               height: 7,
                               borderRadius: 9999,
-                              background: "#06110D",
+                              background: "#C8FF00",
+                              border: "1px solid #06110D",
                               flex: "none",
                             }}
                           />

@@ -181,7 +181,15 @@ export default function SettingsPage() {
             }}
           >
             {policies.map((policy) => (
-              <li key={policy.id ?? policy.name} style={{ border: "1px solid #D9E0DC", borderRadius: 6, padding: 16 }}>
+              <li
+                key={policy.id ?? policy.name}
+                style={{
+                  border: "1px solid #D9E0DC",
+                  background: "var(--soft-chrome)",
+                  borderRadius: 6,
+                  padding: 16,
+                }}
+              >
                 <div
                   style={{
                     display: "flex",

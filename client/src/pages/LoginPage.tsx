@@ -96,7 +96,19 @@ export function AuthLayout({
     <div style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", flexDirection: "column" }}>
       <div style={{ padding: "24px 32px" }}>
         <Link to="/">
-          <span style={{ fontSize: 17, fontWeight: 600 }}>Nobryn</span>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 17,
+              fontWeight: 600,
+              color: "var(--ink)",
+            }}
+          >
+            <span aria-hidden style={{ width: 18, height: 3, background: "#C8FF00", borderRadius: 2 }} />
+            Nobryn
+          </span>
         </Link>
       </div>
       <div style={{ flex: 1, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "48px 16px" }}>
