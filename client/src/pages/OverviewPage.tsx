@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
-import { formatMoney, formatRelative, formatDateTime } from "../lib/types";
+import { formatMoney, formatRelative, formatDateTime, STATE_LABELS } from "../lib/types";
 import type { Summary, TransactionState } from "../lib/types";
 import {
   EmptyState,
   ErrorState,
   ExceptionStatusBadge,
+  SeverityBadge,
   Skeleton,
   SummarySkeleton,
   TableSkeleton,
@@ -38,7 +40,7 @@ export default function OverviewPage() {
 
   return (
     <div className="content-max">
-      <div className="page-header page-header-row">
+      <div className="page-header page-header-row ov-header">
         <div>
           <h1>Overview</h1>
           <p className="support">Monitor business transactions and resolve exceptions.</p>
@@ -63,13 +65,110 @@ export default function OverviewPage() {
         </div>
       ) : summary ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-          {/* Summary cards */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryCard label="Active transactions" value={summary.cards.activeTransactions} />
-            <SummaryCard label="Exceptions" value={summary.cards.exceptions} />
-            <SummaryCard label="Completed" value={summary.cards.completed} />
-            <SummaryCard label="Counterparties" value={summary.cards.counterparties} />
-          </div>
+          {/* Metric composition: one primary metric, three supporting metrics */}
+          <MetricSection summary={summary} />
+
+          {/* Action required — things that need human attention now */}
+          {summary.actionRequired.length > 0 ? (
+            <section aria-label="Action required">
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  marginBottom: 16,
+                  gap: 8,
+                }}
+              >
+                <h2 className="section-heading" style={{ fontSize: 20 }}>
+                  Action required
+                </h2>
+                <span className="text-12 text-muted">
+                  {summary.actionRequired.length} open
+                </span>
+              </div>
+              <div className="card" style={{ overflow: "hidden" }}>
+                <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                  {summary.actionRequired.map((item, idx) => (
+                    <li
+                      key={item.id}
+                      style={{
+                        padding: "16px 24px",
+                        borderBottom:
+                          idx < summary.actionRequired.length - 1
+                            ? "1px solid #E2E8F0"
+                            : "none",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span
+                          style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+                        >
+                          <span style={{ fontSize: 14, fontWeight: 600 }} className="mono">
+                            {item.purchaseOrderNumber}
+                          </span>
+                          <SeverityBadge severity={item.severity} />
+                        </span>
+                        <span className="text-12 text-subtle">
+                          {formatDateTime(item.detectedAt)}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 500, marginTop: 6 }}>
+                        {item.title}
+                      </div>
+                      <div style={{ fontSize: 13, color: "#64748B", marginTop: 2 }}>
+                        {item.description}
+                      </div>
+                      <div className="text-12 text-muted" style={{ marginTop: 2 }}>
+                        {item.why}
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          alignItems: "center",
+                          marginTop: 10,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span
+                          style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+                        >
+                          <span className="badge badge-neutral">
+                            <span className="dot" aria-hidden />
+                            {item.status}
+                          </span>
+                          <span className="text-12 text-muted">
+                            Next: {item.nextAction}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => navigate(item.targetPath)}
+                        >
+                          {item.kind === "EXCEPTION"
+                            ? "Resolve exception"
+                            : item.kind === "EVENT"
+                              ? "Review event"
+                              : "Review transaction"}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+          ) : null}
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             {/* Recent transactions */}
@@ -201,15 +300,117 @@ function exceptionLabel(type: string): string {
   }
 }
 
-function SummaryCard({ label, value }: { label: string; value: number }) {
+/**
+ * Metric composition: Active transactions is the dominant operational metric;
+ * Exceptions, Completed and Counterparties are compact supporting metrics.
+ * All counts come straight from the summary response — nothing is hardcoded.
+ */
+function MetricSection({ summary }: { summary: Summary }) {
+  const activeCount = summary.cards.activeTransactions;
+
+  // The active transactions visible in the recent list (the summary endpoint
+  // returns the five most recently updated transactions with their state).
+  const activeRecent = summary.recentTransactions.filter((t) => t.state !== "COMPLETED");
+  const groups: { state: TransactionState; count: number }[] = [];
+  for (const t of activeRecent) {
+    const group = groups.find((g) => g.state === t.state);
+    if (group) group.count += 1;
+    else groups.push({ state: t.state, count: 1 });
+  }
+
+  // Feature a single active transaction only when exactly one exists and it is
+  // visible in the data — never fabricate a reference.
+  const featured = activeCount === 1 && activeRecent.length === 1 ? activeRecent[0] : null;
+  const fullyObserved = activeRecent.length === activeCount;
+
+  let stateSummary: ReactNode = null;
+  if (activeCount > 0) {
+    if (activeRecent.length === 0) {
+      stateSummary = <>{activeCount} in progress</>;
+    } else if (groups.length === 1 && fullyObserved) {
+      const g = groups[0];
+      stateSummary = (
+        <>
+          <span className="ov-state-name">{STATE_LABELS[g.state]}</span>
+          {" \u00b7 "}
+          {g.count} transaction{g.count === 1 ? "" : "s"}
+        </>
+      );
+    } else {
+      const remainder = activeCount - activeRecent.length;
+      stateSummary = (
+        <>
+          {groups.map((g, i) => (
+            <Fragment key={g.state}>
+              {i > 0 ? " \u00b7 " : ""}
+              <span className="ov-state-name">{STATE_LABELS[g.state]}</span> {g.count}
+            </Fragment>
+          ))}
+          {remainder > 0 ? ` \u00b7 +${remainder} more` : ""}
+        </>
+      );
+    }
+  }
+
   return (
-    <div className="card card-pad">
-      <div className="text-12" style={{ color: "#64748B", fontWeight: 500 }}>
-        {label}
+    <section aria-label="Key metrics" className="ov-metrics">
+      {/* Primary metric */}
+      <div className="ov-primary">
+        <div className="ov-primary-top">
+          <span className="ov-primary-label">Active transactions</span>
+          {activeCount > 0 ? (
+            <span className="ov-primary-state">
+              <span className="ov-state-dot" aria-hidden />
+              <span>{stateSummary}</span>
+            </span>
+          ) : null}
+        </div>
+        <div className="ov-primary-body">
+          <span className="ov-primary-value mono">{activeCount}</span>
+          <div className="ov-primary-copy">
+            <p className="ov-primary-support">
+              {activeCount > 0
+                ? "Currently moving through the transaction lifecycle"
+                : "No transactions currently in progress"}
+            </p>
+          </div>
+        </div>
+        {featured ? (
+          <Link to={`/app/transactions/${featured.id}`} className="ov-primary-featured">
+            <span className="ov-featured-po mono">{featured.purchaseOrderNumber}</span>
+            <span className="ov-featured-cta">View transaction →</span>
+          </Link>
+        ) : null}
       </div>
-      <div style={{ fontSize: 28, lineHeight: "36px", fontWeight: 600, marginTop: 4 }} className="mono">
-        {value}
+
+      {/* Supporting metrics */}
+      <div className="ov-secondary">
+        <MetricCard
+          label="Exceptions"
+          value={summary.cards.exceptions}
+          support="Open exceptions"
+        />
+        <MetricCard
+          label="Completed"
+          value={summary.cards.completed}
+          support="Completed transactions to date"
+        />
+        <MetricCard
+          label="Counterparties"
+          value={summary.cards.counterparties}
+          support="Counterparties on record"
+        />
       </div>
+    </section>
+  );
+}
+
+function MetricCard({ label, value, support }: { label: string; value: number; support: string }) {
+  return (
+    <div className="ov-metric">
+      <div className="ov-metric-label">{label}</div>
+      <div className="ov-metric-value mono">{value}</div>
+      <div className="ov-metric-support">{support}</div>
     </div>
   );
 }

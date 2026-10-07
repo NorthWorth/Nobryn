@@ -14,6 +14,13 @@
   --warning: #b45309;
   --error: #b91c1c;
   --info: #1d4ed8;
+
+  /* Nobryn brand palette (used by the Overview metric composition) */
+  --bio-black: #06110d;
+  --synthetic-lime: #c8ff00;
+  --soft-chrome: #e8ecf1;
+  --brand-line: #d9e0dc;
+  --brand-muted: #647067;
 }
 
 html,
@@ -336,6 +343,211 @@ button {
 .section-sub {
   color: var(--muted);
   margin: 8px 0 0 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Overview metric composition — Bio Black / Synthetic Lime palette
+
+   One dominant operational metric (Active transactions) above three compact
+   supporting metrics (Exceptions, Completed, Counterparties). Lime is a
+   controlled accent: the active-state dot, the featured transaction link and
+   the header primary action only.
+--------------------------------------------------------------------------- */
+
+/* Header area sits 24px above the primary metric (page-scoped). */
+.ov-header {
+  margin-bottom: 24px;
+}
+
+.ov-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Primary metric: Active transactions */
+.ov-primary {
+  background: var(--bio-black);
+  border-radius: 8px;
+  padding: 24px;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: #ffffff;
+  min-width: 0;
+}
+
+.ov-primary-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ov-primary-label {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--soft-chrome);
+}
+
+.ov-primary-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--soft-chrome);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ov-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--synthetic-lime);
+  flex: none;
+}
+
+.ov-state-name {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ov-primary-body {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.ov-primary-value {
+  font-size: 56px;
+  line-height: 56px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.ov-primary-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ov-primary-support {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(255, 255, 255, 0.72);
+  overflow-wrap: anywhere;
+}
+
+.ov-primary-featured {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid rgba(232, 236, 241, 0.16);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.ov-featured-po {
+  font-weight: 500;
+  color: #ffffff;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.ov-featured-cta {
+  color: var(--synthetic-lime);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ov-primary-featured:hover .ov-featured-cta {
+  text-decoration: underline;
+}
+
+/* Secondary metrics: Exceptions, Completed, Counterparties */
+.ov-secondary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ov-metric {
+  background: #ffffff;
+  border: 1px solid var(--brand-line);
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 0;
+}
+
+.ov-metric-label {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brand-muted);
+}
+
+.ov-metric-value {
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 600;
+  color: var(--bio-black);
+  margin-top: 8px;
+}
+
+.ov-metric-support {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+  color: var(--brand-muted);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+/* The header primary action picks up the lime accent on this page only. */
+.ov-header .btn-primary {
+  background: var(--synthetic-lime);
+  color: var(--bio-black);
+}
+
+.ov-header .btn-primary:hover:not(:disabled) {
+  background: var(--synthetic-lime);
+  filter: brightness(0.94);
+}
+
+.ov-header .btn-primary:focus-visible {
+  outline-color: var(--bio-black);
+}
+
+/* Tablet and desktop keep one row; mobile drops to two columns, then stacks
+   on very narrow screens. minmax(0, 1fr) prevents horizontal overflow. */
+@media (max-width: 767px) {
+  .ov-secondary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 479px) {
+  .ov-secondary {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---------------------------------------------------------------------------

@@ -233,13 +233,23 @@ export function CardSkeleton({ lines = 3 }: { lines?: number }) {
 
 export function SummarySkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="card card-pad">
-          <Skeleton width={120} height={12} style={{ marginBottom: 8 }} />
-          <Skeleton width={64} height={28} />
-        </div>
-      ))}
+    <div className="ov-metrics">
+      <div className="ov-primary">
+        <Skeleton width={160} height={12} style={{ background: "rgba(255, 255, 255, 0.14)" }} />
+        <Skeleton
+          width={240}
+          height={56}
+          style={{ background: "rgba(255, 255, 255, 0.14)" }}
+        />
+      </div>
+      <div className="ov-secondary">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="ov-metric">
+            <Skeleton width={110} height={12} style={{ marginBottom: 8 }} />
+            <Skeleton width={56} height={28} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
