@@ -76,7 +76,7 @@ model Counterparty {
   workspaceId String
   companyName String
   contactName String
-  email       String
+  email       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -95,6 +95,8 @@ model Transaction {
   amount                Decimal          @db.Decimal(14, 2)
   currency              String           @default("USD")
   expectedDeliveryDate  DateTime
+  recipientEmail         String?
+  supplierNote           String?
   state                 TransactionState @default(CREATED)
   policyId              String?
   createdAt             DateTime         @default(now())
@@ -109,6 +111,10 @@ model Transaction {
   activity    ActivityEvent[]
   notifications Notification[]
   integrationEvents IntegrationEvent[]
+  accessLinks TransactionAccessLink[]
+  commitments Commitment[]
+  proposals   CommitmentProposal[]
+  deliveryPrompt DeliveryConfirmationPrompt?
 
   @@unique([workspaceId, purchaseOrderNumber])
   @@index([workspaceId, state])
@@ -244,4 +250,100 @@ model ActivityEvent {
   transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@index([transactionId, createdAt])
+}
+
+/**
+ * A supplier-specific, revocable access link for a single transaction.
+ * The token is high-entropy and never derived from or stored as the raw value
+ * in logs — the database holds the token; the URL presented to the supplier
+ * carries it once, at issuance.
+ */
+model TransactionAccessLink {
+  id         String   @id @default(cuid())
+  transactionId String
+  token       String   @unique
+  name        String?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  replacedByToken String?
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+  @@index([token])
+}
+
+/**
+ * The buyer-accepted commitment for a transaction.
+ *
+ * Every change to an accepted commitment creates a new Commitment row and
+ * marks the previous one inactive, so the full history is preserved and the
+ * supplier can never silently overwrite an accepted commitment.
+ */
+model Commitment {
+  id                   String   @id @default(cuid())
+  transactionId        String
+  commitmentNumber     Int
+  items                Json     // [{ itemId: string, name: string, quantity: number }]
+  committedDeliveryDate DateTime
+  explanation          String?
+  submittedVia         String?  // "supplier-link" | "system"
+  createdBy            String?  // supplier token id, or "system"
+  createdAt            DateTime @default(now())
+  isCurrent            Boolean  @default(true)
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+  @@unique([transactionId, commitmentNumber])
+}
+
+/**
+ * A supplier-proposed change to an accepted commitment.
+ *
+ * Proposals are recorded separately from the active accepted commitment and
+ * require explicit buyer approval before any change takes effect.
+ */
+model CommitmentProposal {
+  id                   String   @id @default(cuid())
+  transactionId        String
+  proposedItems        Json     // [{ itemId: string, name: string, quantity: number }]
+  proposedDeliveryDate DateTime
+  explanation          String?
+  submittedByTokenId   String
+  submittedAt          DateTime @default(now())
+  status               String   @default("PENDING") // PENDING | ACCEPTED | REJECTED | SUPERSEDED
+  decidedBy            String?
+  decidedAt            DateTime?
+  decisionNote         String?
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+  @@index([submittedByTokenId])
+}
+
+/**
+ * Persisted buyer delivery-confirmation prompt state for one transaction.
+ *
+ * The 24-hour retry schedule lives here, not in the browser, so it survives
+ * refreshes, logouts, server restarts and use from another device.
+ */
+model DeliveryConfirmationPrompt {
+  id         String   @id @default(cuid())
+  transactionId String @unique
+  status     String   @default("PENDING") // PENDING | CONFIRMED | RESOLVED
+  firstPromptAt  DateTime @default(now())
+  lastPromptAt   DateTime @default(now())
+  nextPromptAt   DateTime?
+  outcome    String?  // RECEIVED | PARTIALLY_RECEIVED | NOT_RECEIVED | UNCONFIRMED
+  receivedQuantity Decimal?
+  note       String?
+  confirmedBy String?
+  confirmedAt DateTime?
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
 }

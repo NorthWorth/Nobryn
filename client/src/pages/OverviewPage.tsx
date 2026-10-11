@@ -151,8 +151,7 @@ export default function OverviewPage() {
                           <span className="text-12 text-muted">
                             Next: {item.nextAction}
                           </span>
-                        </span>
-                        <button
+                        </span>                          <button
                           type="button"
                           className="btn btn-secondary btn-sm"
                           onClick={() => navigate(item.targetPath)}
@@ -161,7 +160,9 @@ export default function OverviewPage() {
                             ? "Resolve exception"
                             : item.kind === "EVENT"
                               ? "Review event"
-                              : "Review transaction"}
+                              : item.kind === "PROPOSAL"
+                                ? "Review proposal"
+                                : "Review transaction"}
                         </button>
                       </div>
                     </li>

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { ExceptionStatus } from "@prisma/client";
+import { z } from "zod";
 import { prisma } from "../prisma.js";
 import { ApiError, asyncHandler, parseWith } from "../errors.js";
 import { requireAuth, requireWorkspace, type AuthedRequest } from "../auth.js";
@@ -38,6 +39,25 @@ import {
   unreadNotificationCount,
 } from "../services/notifications.js";
 import { simulatorAdapter } from "../integrations/simulator.js";
+import {
+  createAccessLink,
+  rotateAccessLink,
+  revokeAccessLink,
+  listAccessLinks,
+  submitSupplierResponse,
+  buyerDecision,
+  dueDeliveryPrompts,
+  confirmDeliveryOutcome,
+  dismissDeliveryPrompt,
+  setSupplierNote,
+  getSupplierNote,
+  fetchPendingProposal,
+  listProposals,
+  fetchCurrentCommitment,
+  fetchCommitmentHistory,
+  type SupplierRespondInput,
+  type DeliveryOutcome,
+} from "../services/delivery.js";
 
 export const apiRouter = Router();
 
@@ -347,6 +367,51 @@ workspaceRouter.get(
 );
 
 // ---------------------------------------------------------------------------
+// Delivery confirmation prompts (buyer delivery outcome)
+// ---------------------------------------------------------------------------
+
+workspaceRouter.get(
+  "/delivery-prompts/due",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    res.json({ prompts: await dueDeliveryPrompts(workspaceId) });
+  })
+);
+
+workspaceRouter.post(
+  "/delivery-prompts/:id/confirm",
+  asyncHandler(async (req, res) => {
+    const { workspaceId, userId } = ctx(req);
+    const id = param(req, "id");
+    const body = parseWith(
+      z.object({
+        outcome: z.enum(["RECEIVED", "PARTIALLY_RECEIVED", "NOT_RECEIVED", "UNCONFIRMED"]),
+        receivedQuantity: z.number().optional(),
+        note: z.string().optional(),
+      }),
+      req.body
+    );
+    const result = await confirmDeliveryOutcome(
+      workspaceId,
+      id,
+      { outcome: body.outcome, receivedQuantity: body.receivedQuantity, note: body.note },
+      userId
+    );
+    res.json(result);
+  })
+);
+
+workspaceRouter.post(
+  "/delivery-prompts/:id/dismiss",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    const prompt = await dismissDeliveryPrompt(workspaceId, id);
+    res.json({ prompt });
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Exceptions — created by the execution engine, resolved by humans
 // ---------------------------------------------------------------------------
 
@@ -377,6 +442,206 @@ workspaceRouter.patch(
     const { workspaceId } = ctx(req);
     const input = parseWith(policySchema, req.body);
     res.json({ policy: await updatePolicy(workspaceId, param(req, "id"), input) });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Commitment proposals (supplier -> buyer approval flow)
+// ---------------------------------------------------------------------------
+
+workspaceRouter.get(
+  "/transactions/:id/proposals",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    const tx = await prisma.transaction.findFirst({
+      where: { id, workspaceId },
+      select: { id: true },
+    });
+    if (!tx) throw new ApiError(404, "Transaction not found in your workspace.");
+    res.json({ proposals: await listProposals(id) });
+  })
+);
+
+workspaceRouter.get(
+  "/transactions/:id/proposals/pending",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    const tx = await prisma.transaction.findFirst({
+      where: { id, workspaceId },
+      select: { id: true },
+    });
+    if (!tx) throw new ApiError(404, "Transaction not found in your workspace.");
+    const pending = await fetchPendingProposal(id);
+    res.json({ proposal: pending ?? null });
+  })
+);
+
+workspaceRouter.post(
+  "/transactions/:id/proposals/decide",
+  asyncHandler(async (req, res) => {
+    const { workspaceId, userId } = ctx(req);
+    const id = param(req, "id");
+    const body = parseWith(
+      z.object({ proposalId: z.string(), accept: z.boolean(), note: z.string().optional() }),
+      req.body
+    );
+    const { commitment, proposal } = await buyerDecision(
+      workspaceId,
+      id,
+      body.proposalId,
+      body.accept,
+      body.note
+    );
+    res.json({ commitment, proposal });
+  })
+);
+
+workspaceRouter.get(
+  "/transactions/:id/commitment",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    const tx = await prisma.transaction.findFirst({
+      where: { id, workspaceId },
+      select: { id: true },
+    });
+    if (!tx) throw new ApiError(404, "Transaction not found in your workspace.");
+    const [current, history, pending] = await Promise.all([
+      fetchCurrentCommitment(id),
+      fetchCommitmentHistory(id),
+      fetchPendingProposal(id),
+    ]);
+    res.json({ current, history, pending });
+  })
+);
+
+workspaceRouter.get(
+  "/transactions/:id/commitment/history",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    const tx = await prisma.transaction.findFirst({
+      where: { id, workspaceId },
+      select: { id: true },
+    });
+    if (!tx) throw new ApiError(404, "Transaction not found in your workspace.");
+    res.json({ history: await fetchCommitmentHistory(id) });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Supplier access links
+// ---------------------------------------------------------------------------
+
+workspaceRouter.post(
+  "/transactions/:id/access-links",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    const body = parseWith(
+      z.object({ name: z.string().optional(), recipientEmail: z.string().optional() }),
+      req.body
+    );
+    const { link, rawToken, url, email } = await createAccessLink(
+      workspaceId,
+      id,
+      body.name ?? null,
+      body.recipientEmail ?? null
+    );
+    res.status(201).json({ link, rawToken, url, email });
+  })
+);
+
+workspaceRouter.post(
+  "/transactions/:id/access-links/rotate",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    const { link, rawToken, url, email } = await rotateAccessLink(workspaceId, id);
+    res.json({ link, rawToken, url, email });
+  })
+);
+
+workspaceRouter.post(
+  "/transactions/:id/access-links/revoke",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    await revokeAccessLink(workspaceId, id);
+    res.json({ success: true });
+  })
+);
+
+workspaceRouter.get(
+  "/transactions/:id/access-links",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    const tx = await prisma.transaction.findFirst({
+      where: { id, workspaceId },
+      select: { id: true },
+    });
+    if (!tx) throw new ApiError(404, "Transaction not found in your workspace.");
+    res.json({ links: await listAccessLinks(workspaceId, id) });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Supplier note (buyer -> supplier message)
+// ---------------------------------------------------------------------------
+
+workspaceRouter.patch(
+  "/transactions/:id/supplier-note",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    const tx = await prisma.transaction.findFirst({
+      where: { id, workspaceId },
+      select: { id: true },
+    });
+    if (!tx) throw new ApiError(404, "Transaction not found in your workspace.");
+    const body = parseWith(z.object({ note: z.string() }), req.body);
+    await setSupplierNote(workspaceId, id, body.note);
+    res.json({ note: await getSupplierNote(id) });
+  })
+);
+
+workspaceRouter.get(
+  "/transactions/:id/supplier-note",
+  asyncHandler(async (req, res) => {
+    const { workspaceId } = ctx(req);
+    const id = param(req, "id");
+    const tx = await prisma.transaction.findFirst({
+      where: { id, workspaceId },
+      select: { id: true },
+    });
+    if (!tx) throw new ApiError(404, "Transaction not found in your workspace.");
+    res.json({ note: await getSupplierNote(id) });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Supplier response (supplier link submission)
+// ---------------------------------------------------------------------------
+
+workspaceRouter.post(
+  "/supplier/transactions/:token/respond",
+  asyncHandler(async (req, res) => {
+    const token = param(req, "token");
+    const body = parseWith(
+      z.object({
+        items: z.array(
+          z.object({ itemId: z.string(), name: z.string(), quantity: z.number().int().positive() })
+        ),
+        deliveryDate: z.string().datetime(),
+        explanation: z.string().optional(),
+      }),
+      req.body
+    );
+    const result = await submitSupplierResponse(token, body as SupplierRespondInput);
+    res.json(result);
   })
 );
 

@@ -14,10 +14,14 @@ import {
 } from "../lib/types";
 import type {
   ActivityCategory,
+  CommitmentRow,
+  CommitmentProposalRow,
   SimulatedEventOption,
   TransactionDetail,
 } from "../lib/types";
 import { useAuth } from "../lib/auth";
+import { fetchTransactionCommitment } from "../lib/endpoints";
+
 import { useToast } from "../lib/toast";
 import {
   Button,
@@ -89,11 +93,25 @@ export default function TransactionDetailPage() {
     fetchTransactionDetail(transactionId!)
   );
 
+  const commitmentKey = `/api/transactions/${transactionId}/commitment`;
+  const {
+    data: commitmentData,
+    loading: commitmentLoading,
+  } = useQuery<{
+    current: CommitmentRow | null;
+    history: CommitmentRow[];
+    pending: CommitmentProposalRow | null;
+  }>(commitmentKey, () => fetchTransactionCommitment(transactionId!));
+
+  const currentCommitment = commitmentData?.current ?? null;
+  const commitmentHistory = commitmentData?.history ?? [];
+  const pendingProposal = commitmentData?.pending ?? null;
+
   /** Apply a mutation's authoritative response to the cache (no refetch). */
   function applyTx(updated: TransactionDetail) {
     if (key) setQueryData(key, updated);
     // State may have changed: refresh everything derived from it elsewhere.
-    invalidate("/api/overview", "/api/exceptions", "/api/notifications");
+    invalidate("/api/overview", "/api/exceptions", "/api/notifications", commitmentKey);
   }
 
   useEffect(() => {
@@ -665,6 +683,15 @@ export default function TransactionDetailPage() {
               <span className="meta-value">{tx.description}</span>
             </div>
           </section>
+
+          {/* Commitment + proposals */}
+          <CommitmentSection
+            transactionId={transactionId!}
+            currentCommitment={currentCommitment}
+            history={commitmentHistory}
+            pendingProposal={pendingProposal}
+            loading={commitmentLoading}
+          />
 
           {/* Exceptions */}
           <section className="card card-pad" aria-label="Exceptions">
@@ -1544,5 +1571,281 @@ function ResolveExceptionModal({
         </Button>
       </div>
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Commitment + proposals section
+// ---------------------------------------------------------------------------
+
+interface CommitmentSectionProps {
+  transactionId: string;
+  currentCommitment: CommitmentRow | null;
+  history: CommitmentRow[];
+  pendingProposal: CommitmentProposalRow | null;
+  loading: boolean;
+}
+
+function CommitmentSection({
+  transactionId,
+  currentCommitment,
+  history,
+  pendingProposal,
+  loading,
+}: CommitmentSectionProps) {
+  const [deciding, setDeciding] = useState(false);
+  const [decideError, setDecideError] = useState<string | null>(null);
+
+  async function handleDecide(proposalId: string, accept: boolean, note: string) {
+    setDeciding(true);
+    setDecideError(null);
+    try {
+      await api.post(`/api/transactions/${transactionId}/proposals/decide`, {
+        proposalId,
+        accept,
+        note: note.trim() || undefined,
+      });
+      window.location.reload();
+    } catch (e) {
+      setDecideError((e as Error).message);
+    } finally {
+      setDeciding(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="card card-pad" aria-label="Commitment">
+        <h2 className="card-heading">Commitment</h2>
+        <p className="text-12 text-muted" style={{ margin: "4px 0 16px 0" }}>
+          The supplier's accepted commitment defines what was agreed to be delivered.
+        </p>
+        <div className="skeleton skeleton-text" style={{ height: 14, width: "60%", marginTop: 8 }} />
+      </section>
+    );
+  }
+
+  return (
+    <section className="card card-pad" aria-label="Commitment">
+      <h2 className="card-heading">Commitment</h2>
+      <p className="text-12 text-muted" style={{ margin: "4px 0 16px 0" }}>
+        The supplier's accepted commitment defines what was agreed to be delivered.
+        Changes require buyer approval before taking effect.
+      </p>
+
+      {currentCommitment ? (
+        <div
+          style={{
+            border: "1px solid #D9E0DC",
+            borderRadius: 6,
+            padding: "16px 20px",
+            background: currentCommitment.isCurrent ? "var(--soft-chrome)" : "transparent",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              marginBottom: 12,
+            }}
+          >
+            <span style={{ fontWeight: 600, fontSize: 15 }}>
+              Commitment #{currentCommitment.commitmentNumber}
+              {currentCommitment.isCurrent ? (
+                <span className="badge badge-success" style={{ marginLeft: 8 }}>
+                  <span className="dot" aria-hidden />
+                  Active
+                </span>
+              ) : (
+                <span className="badge badge-neutral" style={{ marginLeft: 8 }}>
+                  Historical
+                </span>
+              )}
+            </span>
+            <span className="text-12 text-muted">
+              Committed {formatDate(currentCommitment.committedDeliveryDate)}
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            {currentCommitment.items.map((item, idx) => (
+              <div
+                key={idx}
+                style={{
+                  border: "1px solid #D9E0DC",
+                  borderRadius: 4,
+                  padding: "8px 12px",
+                  background: "#fff",
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{item.name}</div>
+                <div className="text-12 text-muted" style={{ marginTop: 2 }}>
+                  Qty: {item.quantity} units
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {currentCommitment.explanation ? (
+            <div className="text-12 text-muted" style={{ marginTop: 8 }}>
+              {currentCommitment.explanation}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <EmptyState
+          title="No commitment yet"
+          description="The supplier has not yet accepted this order. Send an access link to the supplier to get started."
+        />
+      )}
+
+      {/* Commitment history */}
+      {history.length > 1 ? (
+        <div style={{ marginTop: 20 }}>
+          <h3
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#647067",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+              marginBottom: 8,
+            }}
+          >
+            History ({history.length} commitments)
+          </h3>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+            {history.slice().reverse().map((c) => (
+              <li
+                key={c.id}
+                style={{
+                  border: "1px solid #D9E0DC",
+                  borderRadius: 4,
+                  padding: "10px 14px",
+                  background: c.isCurrent ? "var(--soft-chrome)" : "transparent",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontWeight: 500, fontSize: 13 }}>
+                    Commitment #{c.commitmentNumber}
+                    {c.isCurrent ? " (current)" : " (superseded)"}
+                  </span>
+                  <span className="text-12 text-muted">
+                    {formatDate(c.committedDeliveryDate)}
+                  </span>
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  {c.items.map((item, idx) => (
+                    <div key={idx} className="text-12 text-muted" style={{ marginTop: 2 }}>
+                      {item.name} — {item.quantity} units
+                    </div>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {/* Pending proposal for buyer approval */}
+      {pendingProposal && (
+        <div
+          style={{
+            marginTop: 20,
+            border: "1px solid #F59E0B",
+            borderRadius: 6,
+            padding: "16px 20px",
+            background: "#FFFBEB",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              marginBottom: 12,
+            }}
+          >
+            <span style={{ fontWeight: 600, fontSize: 15, color: "#92400E" }}>
+              Supplier proposed a change
+            </span>
+            <span className="badge badge-warning">
+              <span className="dot" aria-hidden />
+              Awaiting your decision
+            </span>
+          </div>
+
+          <p className="text-12 text-muted" style={{ margin: "0 0 12px 0" }}>
+            The supplier proposed changing the committed delivery. Review the proposed
+            items below and approve or reject the change.
+          </p>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            {pendingProposal.proposedItems.map((item, idx) => (
+              <div
+                key={idx}
+                style={{
+                  border: "1px solid #D9E0DC",
+                  borderRadius: 4,
+                  padding: "8px 12px",
+                  background: "#fff",
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{item.name}</div>
+                <div className="text-12 text-muted" style={{ marginTop: 2 }}>
+                  Proposed: {item.quantity} units
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {pendingProposal.explanation ? (
+            <div className="text-12 text-muted" style={{ marginBottom: 12 }}>
+              {pendingProposal.explanation}
+            </div>
+          ) : null}
+
+          {decideError ? (
+            <div className="text-12 text-error" style={{ marginBottom: 8 }}>
+              {decideError}
+            </div>
+          ) : null}
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={deciding}
+              onClick={() => handleDecide(pendingProposal.id, false, "")}
+            >
+              {deciding ? "Processing..." : "Reject change"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={deciding}
+              onClick={() => handleDecide(pendingProposal.id, true, "")}
+            >
+              {deciding ? "Processing..." : "Approve change"}
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

@@ -5,7 +5,7 @@ import { resolvePolicy } from "./policies.js";
 
 export interface ActionRequiredItem {
   id: string;
-  kind: "VERIFICATION" | "EXCEPTION" | "EVENT";
+  kind: "VERIFICATION" | "EXCEPTION" | "EVENT" | "PROPOSAL";
   severity: "LOW" | "MEDIUM" | "HIGH";
   transactionId: string | null;
   purchaseOrderNumber: string;
@@ -63,6 +63,7 @@ export async function deriveActionRequired(workspaceId: string): Promise<ActionR
       select: {
         id: true,
         purchaseOrderNumber: true,
+        pendingProposalId: true,
         policy: true,
         evidence: {
           select: {
@@ -139,6 +140,33 @@ export async function deriveActionRequired(workspaceId: string): Promise<ActionR
         targetPath: `/app/transactions/${tx.id}`,
         detectedAt: claim.receivedAt.toISOString(),
       });
+    }
+
+    // Pending supplier commitment proposals requiring buyer approval.
+    if (tx.pendingProposalId) {
+      const proposal = await prisma.commitmentProposal.findUnique({
+        where: { id: tx.pendingProposalId },
+        select: { id: true, proposedDeliveryDate: true, explanation: true, submittedAt: true },
+      });
+      if (proposal) {
+        const diffs = proposal.explanation
+          ? ` Proposed changes: ${proposal.explanation}.`
+          : "";
+        items.push({
+          id: `proposal:${proposal.id}`,
+          kind: "PROPOSAL",
+          severity: "MEDIUM",
+          transactionId: tx.id,
+          purchaseOrderNumber: tx.purchaseOrderNumber,
+          title: "Supplier proposed a commitment change",
+          description: `Awaiting your decision on the supplier's proposed change to the committed delivery${diffs}`.trim(),
+          why: "The supplier submitted a change to the accepted commitment. Approve or reject it to keep the transaction moving.",
+          status: "Pending approval",
+          nextAction: "Review proposal",
+          targetPath: `/app/transactions/${tx.id}`,
+          detectedAt: proposal.submittedAt.toISOString(),
+        });
+      }
     }
 
     // Open (unresolved) exceptions.

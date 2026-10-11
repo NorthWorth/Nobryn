@@ -8,7 +8,15 @@
  * it uses as the cache key.
  */
 import { api } from "./api";
-import type { OverviewData, TransactionDetail, TransactionListItem } from "./types";
+import type {
+  OverviewData,
+  TransactionDetail,
+  TransactionListItem,
+  CommitmentRow,
+  CommitmentProposalRow,
+  AccessLinkRow,
+  DeliveryPromptRow,
+} from "./types";
 
 export function fetchOverview(): Promise<OverviewData> {
   return api.get<OverviewData>("/api/overview");
@@ -22,4 +30,32 @@ export function fetchTransactionDetail(id: string): Promise<TransactionDetail> {
   return api
     .get<{ transaction: TransactionDetail }>(`/api/transactions/${id}`)
     .then((res) => res.transaction);
+}
+
+export function fetchTransactionProposals(id: string) {
+  return api.get<{ proposals: CommitmentProposalRow[] }>(`/api/transactions/${id}/proposals`);
+}
+
+export function fetchPendingProposal(id: string) {
+  return api.get<{ proposal: CommitmentProposalRow | null }>(`/api/transactions/${id}/proposals/pending`);
+}
+
+export function fetchTransactionCommitment(id: string) {
+  return api.get<{
+    current: CommitmentRow | null;
+    history: CommitmentRow[];
+    pending: CommitmentProposalRow | null;
+  }>(`/api/transactions/${id}/commitment`);
+}
+
+export function fetchAccessLinks(id: string) {
+  return api.get<{ links: AccessLinkRow[] }>(`/api/transactions/${id}/access-links`);
+}
+
+export function fetchSupplierNote(id: string) {
+  return api.get<{ note: string | null }>(`/api/transactions/${id}/supplier-note`);
+}
+
+export function fetchDueDeliveryPrompts() {
+  return api.get<{ prompts: DeliveryPromptRow[] }>("/api/delivery-prompts/due");
 }

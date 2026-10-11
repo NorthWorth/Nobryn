@@ -159,6 +159,62 @@ export interface WorkspaceInfo {
   name: string;
 }
 
+// Commitment + proposal types (from delivery service)
+export interface CommitmentRow {
+  id: string;
+  commitmentNumber: number;
+  items: { itemId: string; name: string; quantity: number }[];
+  committedDeliveryDate: string;
+  explanation: string | null;
+  submittedVia: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  isCurrent: boolean;
+}
+
+export interface CommitmentProposalRow {
+  id: string;
+  transactionId: string;
+  proposedItems: { itemId: string; name: string; quantity: number }[];
+  proposedDeliveryDate: string;
+  explanation: string | null;
+  submittedByTokenId: string;
+  submittedAt: string;
+  status: "PENDING" | "ACCEPTED" | "REJECTED" | "SUPERSEDED";
+  decidedBy: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+}
+
+export interface AccessLinkRow {
+  id: string;
+  token: string;
+  name: string | null;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  replacedByToken: string | null;
+}
+
+export interface DeliveryPromptRow {
+  id: string;
+  transactionId: string;
+  purchaseOrderNumber: string;
+  counterpartyName: string;
+  committedDeliveryDate: string;
+  expectedItems: { name: string; quantity: number }[];
+  committedItems: { name: string; quantity: number }[];
+  status: string;
+  firstPromptAt: string;
+  lastPromptAt: string;
+  nextPromptAt: string;
+  outcome: string | null;
+  receivedQuantity: number | null;
+  confirmedBy: string | null;
+  confirmedAt: string | null;
+  note: string | null;
+}
+
 export interface TransactionListItem {
   id: string;
   purchaseOrderNumber: string;
@@ -209,7 +265,7 @@ export interface NotificationItem {
 /** A derived item that needs human attention right now. */
 export interface ActionRequiredItem {
   id: string;
-  kind: "VERIFICATION" | "EXCEPTION" | "EVENT";
+  kind: "VERIFICATION" | "EXCEPTION" | "EVENT" | "PROPOSAL";
   severity: Severity;
   transactionId: string | null;
   purchaseOrderNumber: string;
